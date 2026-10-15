@@ -1,9 +1,13 @@
 package docsite
 
 import (
+	"bytes"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -197,5 +201,37 @@ func TestGitHubIDs(t *testing.T) {
 	}
 	if got := string(g.Generate([]byte("!!!"), 0)); got != "section-1" {
 		t.Errorf("a repeat: %q", got)
+	}
+}
+
+// TestWriteDir: the static export has a file for every route, at the path a
+// static host serves that route from.
+func TestWriteDir(t *testing.T) {
+	st, err := New(docs.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := st.WriteDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	for route := range st.pages {
+		rel := strings.TrimPrefix(route, "/")
+		if route == Prefix || strings.HasSuffix(route, "/") {
+			rel = path.Join(rel, "index.html")
+		} else {
+			rel += ".html"
+		}
+		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Errorf("%s: %v", route, err)
+			continue
+		}
+		if !bytes.Equal(b, st.pages[route].html) {
+			t.Errorf("%s: the file is not the page", route)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "docs", "index.html")); err != nil {
+		t.Error("no docs/index.html for /docs")
 	}
 }

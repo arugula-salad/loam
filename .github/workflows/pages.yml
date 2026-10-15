@@ -1,0 +1,61 @@
+# The project site at https://loam.agentsh.it: site/ (the landing page and its CNAME) plus the
+# user docs that loam-api serves at /docs, written out as static pages by cmd/loam-docs.
+# Deploys to GitHub Pages from main when either changes; pull requests build it to check it builds.
+name: pages
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "internal/docsite/**"
+      - "cmd/loam-docs/**"
+      - ".github/workflows/pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "internal/docsite/**"
+      - "cmd/loam-docs/**"
+      - ".github/workflows/pages.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the site
+        run: |
+          cp -R site _site
+          go run ./cmd/loam-docs -out _site
+          test -f _site/index.html && test -f _site/docs/index.html && test -f _site/CNAME
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

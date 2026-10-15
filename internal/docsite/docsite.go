@@ -20,7 +20,9 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -302,3 +304,28 @@ func (g *githubIDs) Generate(value []byte, kind ast.NodeKind) []byte {
 }
 
 func (g *githubIDs) Put(value []byte) { g.seen[string(value)] = true }
+
+// WriteDir writes every page under dir as a static site that serves the same
+// routes, for hosting the docs without loam-api (cmd/loam-docs, the project
+// site). A route ending in a slash, or the docs' root, is that directory's
+// index.html; any other route is <route>.html, which static hosts such as
+// GitHub Pages serve at the route without its extension.
+func (s *Site) WriteDir(dir string) error {
+	for route, p := range s.pages {
+		rel := strings.TrimPrefix(route, "/")
+		switch {
+		case route == Prefix || strings.HasSuffix(route, "/"):
+			rel = path.Join(rel, "index.html")
+		default:
+			rel += ".html"
+		}
+		out := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(out, p.html, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}

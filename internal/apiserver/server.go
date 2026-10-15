@@ -212,8 +212,6 @@ func (s *Server) routes() {
 	site()
 	m.HandleFunc("GET /docs", s.docs)
 	m.HandleFunc("GET /docs/", s.docs)
-	// The landing page, at exactly / and for browsers only (landing.go).
-	m.HandleFunc("GET /{$}", s.landing)
 	s.mux = m
 }
 
