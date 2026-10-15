@@ -223,7 +223,8 @@ jobs:
       # The e2b-fountain template's root filesystem (deploy/components/e2b-fountain): loam-e2b
       # with another sandbox layout. It is built FROM the loam-e2b digest above, so its tag names
       # that digest as well as its own tree: a new loam-e2b rebuilds it. Not on a fork's PR, whose
-      # loam-e2b was never pushed.
+      # loam-e2b was never pushed. Its agent CLIs are refreshed weekly by refresh-clis.yml, which
+      # changes the tree (CLI_REFRESH) and pushes the image under the same tag scheme.
       - name: Is loam-e2b-fountain already built?
         id: fountain-tree
         if: env.PUBLISH == 'true'
