@@ -64,7 +64,6 @@ body {
   background: var(--bg);
   color: var(--ink);
   font: 400 17px/1.6 var(--sans);
-  overflow-x: hidden;
 }
 a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 a:hover { text-decoration-thickness: 2px; }
@@ -164,25 +163,49 @@ h2 { font-size: 24px; margin-bottom: 14px; }
 h3 { font-size: 16.5px; margin-bottom: 8px; }
 .content > p, .content > ul { max-width: 40em; }
 
-.diagram { margin: 4px 0 22px; border: 1px solid var(--line); padding: 14px; background: var(--bg); }
-.diagram svg { width: 100%; height: auto; display: block; }
-.diagram text { font-family: var(--mono); }
+.diagram { margin: 18px 0; border: 1px solid var(--line); padding: 16px; background: var(--bg); }
+.diagram-canvas { min-width: 0; }
+@media (max-width: 600px) { .diagram-canvas { min-width: 560px; } }
+.diagram svg { width: 100%; max-width: 100%; height: auto; display: block; }
+.diagram text { font: 14px var(--sans); fill: var(--ink); }
+.diagram .svg-label { font: 500 12px var(--mono); fill: var(--muted); }
+.diagram .svg-small { font-size: 12px; fill: var(--muted); }
+.diagram .svg-value { font: 500 14px var(--mono); fill: var(--accent); }
+.diagram .svg-title { font-weight: 600; }
+.diagram .frame { fill: var(--bg); stroke: var(--line); }
+.diagram .vm { fill: var(--surface); stroke: var(--accent); stroke-width: 1.5; }
+.diagram .flow { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.diagram .rule { fill: none; stroke: var(--line); }
+.diagram .blocked { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.scroll-hint { display: none; }
 
 .scroll { overflow-x: auto; max-width: 100%; }
 table { border-collapse: collapse; width: 100%; font-size: 15px; }
 th, td { text-align: left; vertical-align: top; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); }
 th { font: 500 12.5px/1.5 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border-bottom-color: var(--ink); }
 td:last-child, th:last-child { padding-right: 0; }
-td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-table.measure, table.compare { min-width: 560px; }
-table.measure td:first-child { min-width: 14em; }
-table.compare td:first-child { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
-table.compare td { min-width: 12em; }
+table.compare { min-width: 640px; }
+table.compare td:first-child { font-family: var(--mono); font-size: 13px; width: 35%; }
+table.compare td { width: 32.5%; }
+table.compare tr:last-child { background: var(--surface); }
+table.compare tr:last-child td:first-child { color: var(--accent); }
 
 .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 32px; }
 .two > * { min-width: 0; }
-.two ul { padding-left: 1.1em; font-size: 15.5px; }
-.req li { margin: 0.25em 0; }
+.coverage { border-top: 1px solid var(--line); }
+.coverage h3 { padding-top: 14px; }
+.coverage ul, .requirements ul { list-style: none; padding: 0; font-size: 15px; }
+.coverage li, .requirements li { position: relative; padding: 8px 0 8px 26px; margin: 0; border-bottom: 1px solid var(--line); }
+.coverage li::before, .requirements li::before { content: "\2713"; position: absolute; left: 0; color: var(--accent); font: 500 16px var(--mono); }
+.coverage .gaps li::before { content: "\00d7"; color: var(--muted); }
+.coverage code { padding: 0; background: none; }
+.requirements { margin: 18px 0; }
+.requirements ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+.requirements li span { display: block; font-size: 13px; color: var(--muted); }
+.fit a { white-space: nowrap; }
+.stories { margin: 22px 0; font-size: 15px; line-height: 1.55; }
+.stories > div { border-left: 2px solid var(--line); padding-left: 16px; }
+.after-code { margin-top: 16px; }
 
 footer {
   padding: 32px 0 56px;
@@ -199,7 +222,11 @@ footer {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 40px 0 36px; }
   section.row { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 32px 0; }
   .rail { padding-top: 0; }
-  .two { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .two, .requirements ul { grid-template-columns: minmax(0, 1fr); }
+  .diagram { padding: 12px; }
+  .scroll-hint { display: block; font: 12px var(--mono); color: var(--muted); margin: 8px 0; }
 }
 @media (max-width: 480px) {
   body { font-size: 16px; }
@@ -231,12 +258,12 @@ footer {
 <section class="hero" aria-labelledby="headline">
   <div>
     <h1 id="headline">Firecracker sandboxes on the Kubernetes you already run.</h1>
-    <p class="lede">By default, after 300 seconds without activity, loam pauses a sandbox, saves its memory and disk to your S3-compatible store and gives its VM memory back to the node. The next request restores its processes on a node with room. The official E2B SDKs are a familiar way in.</p>
+    <p class="lede">Idle sandboxes save their memory and disk to S3, releasing VM memory. The next request restores their processes on a node with room.</p>
     <div class="cta">
       <a class="btn primary" href="https://github.com/arugula-salad/loam/blob/main/docs/INSTALL.md">Install guide</a>
       <a class="btn ghost" href="https://github.com/arugula-salad/loam">Source on GitHub</a>
     </div>
-    <p class="fit">You run loam yourself, on x86_64 nodes with KVM. It is young, with one deployment so far, Jake Gaylor's three-node home cluster. The API server runs as a single replica, and there is no hosted service.</p>
+    <p class="fit">Self-hosted, x86_64 with KVM only. No hosted service. loam-api runs as a single replica, so restarts interrupt the API and sandbox URLs. See <a href="#boundary">isolation limits</a> and <a href="#e2b">E2B gaps</a>.</p>
   </div>
   <div>
 <pre><code><span class="c"># point the E2B SDK at your loam</span>
@@ -249,7 +276,7 @@ sbx = Sandbox.create()
 print(sbx.commands.run(<span class="c">"uname -a"</span>).stdout)
 sbx.pause()     <span class="c"># snapshot to S3, VM off the node</span>
 sbx.connect()   <span class="c"># wake it, processes intact</span></code></pre>
-    <p class="caption">The official E2B Python and JS SDKs, unmodified, pass 26 of 26 conformance steps against loam, 13 each. That is the surface the adapter serves. Template builds are not supported. The full list is under <a href="#e2b">E2B coverage</a>.</p>
+    <p class="caption">Across the unmodified official Python and JS SDKs, 26 of 26 conformance steps pass for the supported surface. Template builds are unsupported. See <a href="#e2b">E2B coverage</a>.</p>
   </div>
 </section>
 
@@ -257,77 +284,124 @@ sbx.connect()   <span class="c"># wake it, processes intact</span></code></pre>
   <div class="rail" aria-hidden="true">How it works</div>
   <div class="content">
     <h2 id="how-h">Sleep and wake</h2>
-    <div class="diagram">
-      <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="diagram-title diagram-desc">
-        <title id="diagram-title">How loam is laid out</title>
-        <desc id="diagram-desc">Clients using the E2B SDK, the CLI or the Go and TypeScript clients call loam-api, which keeps sandbox records in Postgres and sends work to a nodelet pod on each node. Nodelets run Firecracker VMs and have room for more. Pausing a VM writes a snapshot to an S3 bucket, and waking reads it back on any node.</desc>
-        <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
-        </defs>
-        <g font-size="14" fill="var(--ink)">
-          <rect x="10" y="40" width="160" height="70" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="90" y="70" text-anchor="middle" font-weight="500">clients</text>
-          <text x="90" y="92" text-anchor="middle" font-size="12" fill="var(--muted)">E2B SDK, CLI, Go, TS</text>
-
-          <rect x="240" y="40" width="170" height="70" fill="var(--bg)" stroke="var(--ink)"/>
-          <text x="325" y="70" text-anchor="middle" font-weight="500">loam-api</text>
-          <text x="325" y="92" text-anchor="middle" font-size="12" fill="var(--muted)">placement, lifecycle</text>
-
-          <rect x="240" y="200" width="170" height="60" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="325" y="230" text-anchor="middle" font-weight="500">Postgres</text>
-          <text x="325" y="248" text-anchor="middle" font-size="12" fill="var(--muted)">sandbox records</text>
-
-          <rect x="480" y="20" width="250" height="110" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="500" y="44" font-weight="500">nodelet pod, node A</text>
-          <rect x="500" y="60" width="62" height="50" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/><text x="531" y="90" text-anchor="middle" font-size="12">VM</text>
-          <rect x="574" y="60" width="62" height="50" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/><text x="605" y="90" text-anchor="middle" font-size="12">VM</text>
-          <rect x="648" y="60" width="62" height="50" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="679" y="90" text-anchor="middle" font-size="11" fill="var(--muted)">room</text>
-
-          <rect x="480" y="160" width="250" height="110" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="500" y="184" font-weight="500">nodelet pod, node B</text>
-          <rect x="500" y="200" width="62" height="50" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/><text x="531" y="230" text-anchor="middle" font-size="12">VM</text>
-          <rect x="574" y="200" width="62" height="50" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="605" y="230" text-anchor="middle" font-size="11" fill="var(--muted)">room</text>
-
-          <rect x="790" y="110" width="100" height="80" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="840" y="145" text-anchor="middle" font-weight="500">S3</text>
-          <text x="840" y="166" text-anchor="middle" font-size="12" fill="var(--muted)">snapshots</text>
-        </g>
-        <g stroke="var(--muted)" stroke-width="1.4" fill="none" marker-end="url(#arrow)">
-          <path d="M170 75H236"/>
-          <path d="M325 110V196"/>
-          <path d="M410 70H476"/>
-          <path d="M410 90C445 90 445 215 476 215"/>
-          <path d="M730 75C765 75 765 135 786 140"/>
-          <path d="M786 160C765 165 765 215 730 215"/>
-        </g>
-        <text x="760" y="68" font-size="12" fill="var(--muted)">pause</text>
-        <text x="762" y="242" font-size="12" fill="var(--muted)">wake</text>
-      </svg>
+    <p>A Postgres record tracks each sandbox. Long-lived nodelet pods run the VMs, so waking needs no new pod.</p>
+    <p class="scroll-hint">Scroll the diagram horizontally →</p>
+    <div class="diagram scroll" tabindex="0" role="region" aria-label="Sandbox lifecycle diagram">
+      <div class="diagram-canvas">
+        <svg viewBox="0 0 744 258" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="A sandbox runs on node A. After 300 seconds idle by default, pause saves memory and disk to S3 and releases VM memory. Disk caches remain. Wake reads the snapshot from S3 onto node B with processes intact.">
+          <defs>
+            <marker id="lifecycle-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8Z" fill="var(--accent)"/></marker>
+          </defs>
+          <text class="svg-label" x="8" y="18">RUNNING</text>
+          <text class="svg-label" x="282" y="18">PAUSED</text>
+          <text class="svg-label" x="550" y="18">RUNNING</text>
+          <rect class="frame" x="8" y="38" width="188" height="124"/>
+          <text class="svg-label" x="22" y="62">node A · nodelet</text>
+          <rect class="vm" x="22" y="80" width="160" height="66"/>
+          <text class="svg-title" x="102" y="105" text-anchor="middle">Firecracker VM</text>
+          <g fill="var(--accent)">
+            <rect x="43" y="122" width="28" height="6"/>
+            <rect x="78" y="122" width="48" height="6"/>
+            <rect x="133" y="122" width="28" height="6"/>
+          </g>
+          <path d="M282 74V132C282 150 462 150 462 132V74" fill="var(--surface)" stroke="var(--muted)"/>
+          <ellipse cx="372" cy="74" rx="90" ry="14" fill="var(--surface)" stroke="var(--muted)"/>
+          <text class="svg-title" x="372" y="108" text-anchor="middle">S3 snapshot</text>
+          <text class="svg-small" x="372" y="129" text-anchor="middle">memory + disk</text>
+          <rect class="frame" x="550" y="38" width="188" height="124"/>
+          <text class="svg-label" x="564" y="62">node B · nodelet</text>
+          <rect class="vm" x="564" y="80" width="160" height="66"/>
+          <text class="svg-title" x="644" y="105" text-anchor="middle">Firecracker VM</text>
+          <g fill="var(--accent)">
+            <rect x="585" y="122" width="28" height="6"/>
+            <rect x="620" y="122" width="48" height="6"/>
+            <rect x="675" y="122" width="28" height="6"/>
+          </g>
+          <g class="flow" marker-end="url(#lifecycle-arrow)">
+            <path d="M202 105H276"/>
+            <path d="M468 105H544"/>
+          </g>
+          <text class="svg-small" x="239" y="91" text-anchor="middle">pause</text>
+          <text class="svg-small" x="506" y="91" text-anchor="middle">wake</text>
+          <path class="rule" d="M102 162V194"/>
+          <rect x="8" y="194" width="188" height="48" fill="none" stroke="var(--muted)" stroke-dasharray="4 4"/>
+          <text x="102" y="214" text-anchor="middle">VM memory released</text>
+          <text class="svg-small" x="102" y="232" text-anchor="middle">disk cache remains</text>
+          <text x="372" y="184" text-anchor="middle">Idle after 300 s by default</text>
+          <text class="svg-small" x="372" y="205" text-anchor="middle">snapshot in your bucket</text>
+          <text x="644" y="184" text-anchor="middle">Processes intact</text>
+          <text class="svg-small" x="644" y="205" text-anchor="middle">memory loaded lazily</text>
+        </svg>
+      </div>
     </div>
-    <p>A sandbox is a record in Postgres. No pod is created for it. Each KVM node you label runs one long-lived worker pod, the nodelet, which boots Firecracker VMs inside itself, owns their network and keeps a cache of snapshot layers on an XFS directory with reflinks.</p>
-    <p>When a sandbox goes idle, 300 seconds by default, the nodelet pauses it and uploads the dirty memory and disk blocks to your bucket. The VM is gone from the node and its memory is free for other work. The node still keeps a cache of its layers on disk. The next request wakes it on the node that has the snapshot locally, or on any node with room, with memory paged in lazily through userfaultfd. Waking never waits on the scheduler or etcd.</p>
-    <p>Pause, checkpoint and fork write the same layered format, so the native API can save a sandbox at a point in time and branch it. Firecracker is upstream v1.17.0. The components are in <a href="https://github.com/arugula-salad/loam/blob/main/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a> and the first steps in <a href="/docs/primer">the primer</a>.</p>
+    <p class="caption">Wake prefers the node holding the snapshot, then any node with room. <a href="https://github.com/arugula-salad/loam/blob/main/docs/ARCHITECTURE.md">Architecture</a> · <a href="/docs/primer">Primer</a></p>
   </div>
 </section>
 
 <section class="row" id="measurements" aria-labelledby="measure-h">
   <div class="rail" aria-hidden="true">Measurements</div>
   <div class="content">
-    <h2 id="measure-h">What was measured</h2>
-    <div class="scroll">
-      <table class="measure">
-        <thead><tr><th scope="col">Operation</th><th scope="col">Time</th><th scope="col">Condition</th></tr></thead>
-        <tbody>
-          <tr><td>Resume a paused sandbox on the same node</td><td class="num">29 ms</td><td>Single-node phase, XFS reflinks</td></tr>
-          <tr><td>Pause, memory and disk</td><td class="num">320 ms</td><td>Single-node phase, XFS reflinks</td></tr>
-          <tr><td>Fork from a memory checkpoint</td><td class="num">28 ms</td><td>Single-node phase, XFS reflinks</td></tr>
-          <tr><td>Wake on another node, memory loaded lazily</td><td class="num">0.42 s</td><td>Cross-node phase, 2 GiB base template</td></tr>
-          <tr><td>Drain a node with two awake sandboxes</td><td class="num">13 s</td><td>Cross-node phase, 2 GiB base template</td></tr>
-          <tr><td>Wake saved sandboxes after a lost node</td><td class="num">5.8 s</td><td>Cross-node phase, 2 GiB base template</td></tr>
-        </tbody>
-      </table>
+    <h2 id="measure-h">Snapshot timings</h2>
+    <p class="caption">Log scale begins at 28 ms. Each bar has its own test condition.</p>
+    <p class="scroll-hint">Scroll the chart horizontally →</p>
+    <div class="diagram scroll" tabindex="0" role="region" aria-label="Snapshot timing chart">
+      <div class="diagram-canvas">
+        <svg viewBox="0 0 744 402" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Snapshot timings on a log scale starting at 28 milliseconds. Single-node tests with XFS reflinks measured resume at 29 milliseconds, fork from a memory checkpoint at 28 milliseconds and pause at 320 milliseconds. Cross-node tests with a 2 GiB base template measured lazy-memory wake at 0.42 seconds, wake of saved state after node loss at 5.8 seconds and drain with two awake sandboxes at 13 seconds.">
+          <!-- Endpoints use x = 340 + 328 * ln(milliseconds / 28) / ln(13000 / 28).
+               The fastest result is a point at the labeled nonzero baseline. -->
+          <path class="rule" d="M340.000 14V362"/>
+          <text class="svg-label" x="340.000" y="384" text-anchor="middle">28 ms</text>
+          <path class="rule" d="M470.127 14V362"/>
+          <text class="svg-label" x="470.127" y="384" text-anchor="middle">320 ms</text>
+          <path class="rule" d="M668.000 14V362"/>
+          <text class="svg-label" x="668.000" y="384" text-anchor="middle">13 s</text>
+          <path class="rule" d="M0 188H744M340 362H668"/>
+          <g>
+            <text x="0" y="35">Resume on the same node</text>
+            <text class="svg-small" x="0" y="54">Single node · XFS reflinks</text>
+            <path d="M340 40H341.874" stroke="var(--accent)" stroke-width="6"/>
+            <circle cx="341.874" cy="40" r="3.5" fill="var(--accent)"/>
+            <text class="svg-value" x="742" y="45" text-anchor="end">29 ms</text>
+          </g>
+          <g>
+            <text x="0" y="91">Fork from a memory checkpoint</text>
+            <text class="svg-small" x="0" y="110">Single node · XFS reflinks</text>
+            <path d="M340 96H340.000" stroke="var(--accent)" stroke-width="6"/>
+            <circle cx="340.000" cy="96" r="3.5" fill="var(--accent)"/>
+            <text class="svg-value" x="742" y="101" text-anchor="end">28 ms</text>
+          </g>
+          <g>
+            <text x="0" y="147">Pause memory and disk</text>
+            <text class="svg-small" x="0" y="166">Single node · XFS reflinks</text>
+            <path d="M340 152H470.127" stroke="var(--accent)" stroke-width="6"/>
+            <circle cx="470.127" cy="152" r="3.5" fill="var(--accent)"/>
+            <text class="svg-value" x="742" y="157" text-anchor="end">320 ms</text>
+          </g>
+          <g>
+            <text x="0" y="219">Wake on another node</text>
+            <text class="svg-small" x="0" y="238">Cross-node · 2 GiB base template · lazy memory</text>
+            <path d="M340 224H484.653" stroke="var(--accent)" stroke-width="6"/>
+            <circle cx="484.653" cy="224" r="3.5" fill="var(--accent)"/>
+            <text class="svg-value" x="742" y="229" text-anchor="end">0.42 s</text>
+          </g>
+          <g>
+            <text x="0" y="275">Wake saved state after node loss</text>
+            <text class="svg-small" x="0" y="294">Cross-node · 2 GiB base template</text>
+            <path d="M340 280H624.889" stroke="var(--accent)" stroke-width="6"/>
+            <circle cx="624.889" cy="280" r="3.5" fill="var(--accent)"/>
+            <text class="svg-value" x="742" y="285" text-anchor="end">5.8 s</text>
+          </g>
+          <g>
+            <text x="0" y="331">Drain with two awake sandboxes</text>
+            <text class="svg-small" x="0" y="350">Cross-node · 2 GiB base template</text>
+            <path d="M340 336H668.000" stroke="var(--accent)" stroke-width="6"/>
+            <circle cx="668.000" cy="336" r="3.5" fill="var(--accent)"/>
+            <text class="svg-value" x="742" y="341" text-anchor="end">13 s</text>
+          </g>
+        </svg>
+      </div>
     </div>
-    <p class="caption">These are snapshot operations, measured on a three-node home k3s cluster on x86 bare metal with Garage as the store. They are not cold start numbers or percentiles. The lost-node case wakes paused and stopped sandboxes from saved state. An awake sandbox's unsaved work on that node is gone. The runs are written up in <a href="https://github.com/arugula-salad/loam/blob/main/docs/PHASE2-TEST.md">docs/PHASE2-TEST.md</a>.</p>
+    <p class="caption">Measured on x86 bare-metal k3s nodes with Garage as the store. Snapshot operations, not cold starts or percentiles. Lost-node wake restores saved paused or stopped state. Awake, unsaved work is lost. <a href="https://github.com/arugula-salad/loam/blob/main/docs/PHASE2-TEST.md">Test write-up</a></p>
   </div>
 </section>
 
@@ -335,52 +409,50 @@ sbx.connect()   <span class="c"># wake it, processes intact</span></code></pre>
   <div class="rail" aria-hidden="true">E2B coverage</div>
   <div class="content">
     <h2 id="e2b-h">What the adapter serves</h2>
-    <p>Set <code>E2B_DOMAIN</code> and <code>E2B_API_KEY</code> and the official SDKs talk to loam. Every E2B sandbox is an ordinary loam sandbox.</p>
-    <div class="two">
+    <div class="two coverage" role="img" aria-label="E2B coverage. Supported are create, get, kill, timeout, filtered listing, commands, files, streaming, pause, resume, auto-pause, auto-resume, sandbox ports, internet toggle, egress by name, one metrics sample and health. Unsupported are template builds, E2B snapshot and fork endpoints, volumes, sandbox logs and metrics history, CIDR and IP egress rules, secure false and allowPublicTraffic false.">
       <div>
         <h3>Supported</h3>
         <ul>
-          <li>Create, get, kill, set timeout, and list with metadata and state filters</li>
-          <li>Commands and files through E2B's own envd (0.9.0) in the guest, with streaming and signed file URLs</li>
-          <li>Pause with memory or disk only, connect and resume, auto pause and auto resume</li>
-          <li>Sandbox ports at <code>&lt;port&gt;-&lt;id&gt;.&lt;domain&gt;</code></li>
-          <li>The internet access toggle and <code>allowOut</code> and <code>denyOut</code> rules by name</li>
-          <li>Metrics as one sample, and health</li>
+          <li>Create, get, kill, timeout, filtered list</li>
+          <li>Commands, files and streaming</li>
+          <li>Pause, resume and their automatic modes</li>
+          <li>Sandbox ports</li>
+          <li>Internet toggle and egress by name</li>
+          <li>One metrics sample and health</li>
         </ul>
       </div>
-      <div>
+      <div class="gaps">
         <h3>Not supported</h3>
         <ul>
-          <li>The template build API</li>
-          <li>E2B's snapshot and fork endpoints</li>
+          <li>Template builds</li>
+          <li>E2B snapshot and fork endpoints</li>
           <li>Volumes</li>
           <li>Sandbox logs and metrics history</li>
-          <li>CIDR and IP egress rules, since loam's rules are names only</li>
-          <li><code>secure:false</code> and <code>allowPublicTraffic:false</code>, both refused</li>
+          <li>CIDR and IP egress rules</li>
+          <li><code>secure:false</code>, <code>allowPublicTraffic:false</code></li>
         </ul>
       </div>
     </div>
-    <p class="caption">Checkpoints and forks exist in loam's native API. The full list and the differences from hosted E2B are in <a href="https://github.com/arugula-salad/loam/blob/main/docs/E2B.md">docs/E2B.md</a>.</p>
+    <p class="caption">Checkpoints and forks are available through loam's native API. <a href="https://github.com/arugula-salad/loam/blob/main/docs/E2B.md">Full coverage and differences</a></p>
   </div>
 </section>
 
 <section class="row" id="compared" aria-labelledby="compared-h">
   <div class="rail" aria-hidden="true">Compared</div>
   <div class="content">
-    <h2 id="compared-h">Where else sandboxes run</h2>
-    <div class="scroll">
+    <h2 id="compared-h">Where sandboxes run</h2>
+    <div class="scroll" tabindex="0" role="region" aria-label="Sandbox project comparison">
       <table class="compare">
-        <thead><tr><th scope="col">Project</th><th scope="col">Where a sandbox runs</th><th scope="col">How you get it</th></tr></thead>
+        <thead><tr><th scope="col">Project</th><th scope="col">Runtime</th><th scope="col">Deployment</th></tr></thead>
         <tbody>
-          <tr><td>Hosted E2B</td><td>Firecracker VMs on E2B's machines</td><td>Their service</td></tr>
-          <tr><td>E2B self-hosted</td><td>E2B's own stack on Nomad and Consul</td><td>Terraform. GCP is supported, AWS is beta</td></tr>
-          <tr><td>scitix/agent-sandbox</td><td>A pod from a warm pool. MicroVMs are listed as coming soon</td><td>A Kubernetes operator with an E2B-compatible server</td></tr>
-          <tr><td>kubernetes-sigs/agent-sandbox</td><td>A Kubernetes-native sandbox API, alpha</td><td>On your cluster. It does not speak E2B's API</td></tr>
-          <tr><td>loam</td><td>A Firecracker VM inside a nodelet pod on your nodes, a snapshot in your bucket while idle</td><td>A kustomize base and an overlay on the cluster you have</td></tr>
+          <tr><td>Hosted E2B</td><td>Firecracker on E2B's machines</td><td>Hosted service</td></tr>
+          <tr><td>E2B self-hosted</td><td>Nomad and Consul</td><td>Terraform. GCP supported, AWS beta</td></tr>
+          <tr><td>scitix/agent-sandbox</td><td>Warm pod pools. MicroVMs planned</td><td>Kubernetes operator, E2B-compatible server</td></tr>
+          <tr><td>kubernetes-sigs/agent-sandbox</td><td>Kubernetes-native sandbox API</td><td>Alpha, no E2B API</td></tr>
+          <tr><td>loam</td><td>Firecracker in nodelets, snapshots while idle</td><td>Kubernetes, kustomize base and overlay</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="caption">What you give up with loam is maturity. It has one deployment, runs on x86_64 only, and the E2B gaps above are real.</p>
   </div>
 </section>
 
@@ -388,9 +460,48 @@ sbx.connect()   <span class="c"># wake it, processes intact</span></code></pre>
   <div class="rail" aria-hidden="true">The boundary</div>
   <div class="content">
     <h2 id="boundary-h">What a sandbox can reach</h2>
-    <p>The nodelet enforces the boundary outside the guest. The nodelet drops a VM's traffic to private address ranges, which on a typical cluster covers the node, the pod network and the LAN. Egress rules are names, exact or wildcard. The DNS forwarder refuses names outside the rules and strips private answers, and a transparent proxy on TCP 80 and 443 reads the Host or SNI, resolves the name itself and dials it, so another site on the same CDN address stays out. A sandbox with egress rules gets TCP over IPv4 only, and UDP, QUIC, ICMP and IPv6 are blocked.</p>
-    <p>Brokered secrets cover the hosts you configure them for. The sandbox's environment holds a placeholder and the nodelet substitutes the real value on the wire, so it never reaches guest memory, guest disk or a snapshot. A secret your application writes into the guest itself is its own business. A sandbox can ask its local socket for a short-lived JWT naming its project and ID, verifiable from outside.</p>
-    <p>The nodelet is unprivileged, with every capability dropped and eight added back, a read-only root and the default seccomp profile. The gap is cgroups. VMs share their nodelet's cgroup and its memory limit, with no cgroup per VM. Admission checks each nodelet's configured memory budget.</p>
+    <p>The nodelet enforces the boundary outside the guest. A sandbox with egress rules gets TCP over IPv4 only.</p>
+    <p class="scroll-hint">Scroll the diagram horizontally →</p>
+    <div class="diagram scroll" tabindex="0" role="region" aria-label="Sandbox network boundary diagram">
+      <div class="diagram-canvas">
+        <svg viewBox="0 0 744 346" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The VM sends requests through its nodelet to internet hosts allowed by name. The nodelet's DNS forwarder rejects disallowed names and private answers. Its proxy checks SNI or Host and resolves the destination itself. For configured brokered hosts only, the secret broker replaces a guest placeholder with the real value on the wire. Private ranges, including the node, pod network and LAN, are blocked.">
+          <defs>
+            <marker id="network-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8Z" fill="var(--accent)"/></marker>
+          </defs>
+          <rect class="vm" x="2" y="66" width="160" height="144"/>
+          <text class="svg-title" x="82" y="97" text-anchor="middle">Firecracker VM</text>
+          <text class="svg-small" x="82" y="122" text-anchor="middle">guest environment</text>
+          <text class="svg-label" x="82" y="155" text-anchor="middle">__loam_key__</text>
+          <text class="svg-small" x="82" y="182" text-anchor="middle">placeholder only</text>
+          <rect class="frame" x="220" y="16" width="312" height="242"/>
+          <text class="svg-label" x="236" y="41">nodelet · outside the guest</text>
+          <path class="rule" d="M220 54H532M236 109H516M236 163H516"/>
+          <text class="svg-title" x="236" y="78">DNS forwarder</text>
+          <text class="svg-small" x="236" y="97">allowed names, private answers stripped</text>
+          <text class="svg-title" x="236" y="132">SNI / Host-checking proxy</text>
+          <text class="svg-small" x="236" y="151">resolves and dials the destination itself</text>
+          <text class="svg-title" x="236" y="188">Secret broker</text>
+          <text x="236" y="212">placeholder → real value on the wire</text>
+          <text class="svg-small" x="236" y="238">only for the secret's configured hosts</text>
+          <rect class="frame" x="596" y="66" width="146" height="144"/>
+          <text class="svg-title" x="669" y="103" text-anchor="middle">Internet</text>
+          <text x="669" y="133" text-anchor="middle">allowed by name</text>
+          <text class="svg-small" x="669" y="164" text-anchor="middle">exact or wildcard</text>
+          <g class="flow" marker-end="url(#network-arrow)">
+            <path d="M164 138H214"/>
+            <path d="M534 138H590"/>
+          </g>
+          <path class="blocked" d="M376 258V284M370 278L382 290M382 278L370 290"/>
+          <rect class="frame" x="220" y="298" width="522" height="42"/>
+          <text class="svg-title" x="236" y="324">Private ranges blocked</text>
+          <text class="svg-small" x="724" y="324" text-anchor="end">Node · pod network · LAN</text>
+        </svg>
+      </div>
+    </div>
+    <div class="two small">
+      <p>Brokered values stay out of guest memory, disk and snapshots. Secrets the application writes itself are outside that protection.</p>
+      <p>Sandboxes have OIDC identity. VMs share their unprivileged nodelet's cgroup and memory limit.</p>
+    </div>
   </div>
 </section>
 
@@ -398,38 +509,24 @@ sbx.connect()   <span class="c"># wake it, processes intact</span></code></pre>
   <div class="rail" aria-hidden="true">Run it</div>
   <div class="content">
     <h2 id="run-h">What you need</h2>
-    <ul class="req">
-      <li>x86_64 nodes with KVM, so bare metal or an instance with nested virtualization</li>
-      <li>Linux 6.1 or newer on those nodes, for <code>/dev/userfaultfd</code></li>
-      <li>A device plugin exposing <code>/dev/kvm</code>, <code>/dev/net/tun</code> and <code>/dev/userfaultfd</code> as resources</li>
-      <li>An XFS directory with reflinks on each node. An XFS image file on ext4 works</li>
-      <li>Postgres</li>
-      <li>An S3-compatible bucket</li>
-      <li>Wildcard DNS and a wildcard certificate for the API, port and E2B domains</li>
-    </ul>
-    <p style="margin-top:1em">k3s is what it runs on today. If that list fits, <a href="https://github.com/arugula-salad/loam/blob/main/docs/INSTALL.md">docs/INSTALL.md</a> goes from the device plugin to your first key, with the kustomize base in <code>deploy/base</code> and an overlay of your own started from the example.</p>
+    <div class="requirements" role="img" aria-label="Requirements checklist. Kubernetes on x86_64 with KVM, using bare metal or nested virtualization. Linux 6.1 or newer. A device plugin exposing /dev/kvm, /dev/net/tun and /dev/userfaultfd. An XFS reflink directory on each node, which can be an XFS image on ext4. Postgres, an S3-compatible bucket, and wildcard DNS and TLS for API, port and E2B domains.">
+      <ul>
+        <li>Kubernetes on x86_64 with KVM<span>Bare metal or nested virtualization</span></li>
+        <li>Linux 6.1 or newer<span>For /dev/userfaultfd</span></li>
+        <li>Device plugin<span>/dev/kvm, /dev/net/tun, /dev/userfaultfd</span></li>
+        <li>XFS reflink directory on each node<span>An XFS image on ext4 works</span></li>
+        <li>Postgres</li>
+        <li>S3-compatible bucket</li>
+        <li>Wildcard DNS and TLS<span>API, port and E2B domains</span></li>
+      </ul>
+    </div>
+    <p>Follow the <a href="https://github.com/arugula-salad/loam/blob/main/docs/INSTALL.md">install guide</a> with the kustomize base and example overlay.</p>
 <pre><code>git clone https://github.com/arugula-salad/loam
 cp -r loam/deploy/examples/basic my-loam
 <span class="c"># set your domain, store URL, ingress and secrets in my-loam</span>
 kubectl kustomize my-loam | less
 kubectl apply -k my-loam</code></pre>
-    <p style="margin-top:1em">The native CLI adds exec sessions, port URLs, checkpoints, forks, egress rules and brokered secrets.</p>
-<pre><code>go install github.com/arugula-salad/loam/cmd/loam@latest
-<span class="k">export</span> LOAM_API_URL=https://api.loam.example.com LOAM_TOKEN=loam_...
-loam create scratch
-loam run scratch -- uname -a
-loam pause scratch
-loam run scratch -- uptime     <span class="c"># wakes it first</span></code></pre>
-    <p style="margin-top:1em">To try it on one machine without a cluster, the Locally recipe in <a href="https://github.com/arugula-salad/loam/blob/main/docs/E2B.md#conformance">docs/E2B.md</a> runs the nodelet in a container with <code>/dev/kvm</code> and loam-api with <code>--database-url memory</code>. That is a development setup, and the database goes away with the process.</p>
-  </div>
-</section>
-
-<section class="row" id="status" aria-labelledby="status-h">
-  <div class="rail" aria-hidden="true">Status</div>
-  <div class="content">
-    <h2 id="status-h">How it was built</h2>
-    <p>The first commit was on 2026-10-11. loam has run one deployment since, a three-node home k3s cluster. It runs 17 browser games, a CI runner, a Signal agent and an E2B endpoint friends use. It was written mostly by Claude Code, working from Jake Gaylor's design and under his review. It is about 55k lines of Go, 18.5k of them tests. The snapshot store is about 12k lines copied and trimmed from <a href="https://github.com/e2b-dev/infra">e2b-dev/infra</a>, Apache-2.0, with upstream Firecracker 1.17 in place of E2B's fork.</p>
-    <p>The open problems. loam-api is a single replica, so a restart briefly interrupts the API and the sandboxes' URLs. VMs share their nodelet's cgroup. It is x86_64 only. And the E2B gaps above.</p>
+    <p class="caption after-code">For single-machine development, the <a href="https://github.com/arugula-salad/loam/blob/main/docs/E2B.md#conformance">local recipe</a> uses an in-memory database that disappears on exit.</p>
   </div>
 </section>
 
@@ -437,9 +534,18 @@ loam run scratch -- uptime     <span class="c"># wakes it first</span></code></p
   <div class="rail" aria-hidden="true">Contribute</div>
   <div class="content">
     <h2 id="contribute-h">What would help</h2>
-    <p>Install reports from clusters other than this one would help most, from Talos, kubeadm, a Hetzner or OVH bare-metal node, or nested virtualization on a cloud instance. After that, per-VM cgroups and the E2B gaps.</p>
-    <p>Bugs get fixed with a write-up of the cause. A sandbox moved to another node had no network for 30 seconds. Each node's bridge had a random MAC and the guest's ARP cache still pointed at the old gateway, so the bridge now has a fixed MAC everywhere. Headless Chrome could not get through the egress filter. Chrome sends ECH as GREASE on every connection and the proxy refused ECH, so it now judges by the outer name.</p>
-    <p><a href="https://github.com/arugula-salad/loam/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> has the setup. Report vulnerabilities privately as <a href="https://github.com/arugula-salad/loam/blob/main/SECURITY.md">SECURITY.md</a> describes.</p>
+    <p>Send install reports from Talos, kubeadm, Hetzner or OVH bare metal, or cloud instances with nested virtualization. Contributions toward per-VM cgroups and E2B gaps would help.</p>
+    <div class="two stories">
+      <div>
+        <h3>Network after a move</h3>
+        <p>A moved sandbox lost networking for 30 seconds. Random bridge MACs left stale guest ARP entries. Every node's bridge now uses a fixed MAC.</p>
+      </div>
+      <div>
+        <h3>Chrome through the proxy</h3>
+        <p>Headless Chrome's ECH GREASE triggered the egress filter's ECH rejection. The proxy now judges the outer SNI name.</p>
+      </div>
+    </div>
+    <p class="small">Start with <a href="https://github.com/arugula-salad/loam/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>. Report vulnerabilities privately through <a href="https://github.com/arugula-salad/loam/blob/main/SECURITY.md">SECURITY.md</a>.</p>
   </div>
 </section>
 
@@ -447,7 +553,6 @@ loam run scratch -- uptime     <span class="c"># wakes it first</span></code></p
 
 <footer>
   <span>loam. <a href="https://github.com/arugula-salad/loam/blob/main/LICENSE">Apache-2.0</a>. Snapshot store derived from <a href="https://github.com/e2b-dev/infra">e2b-dev/infra</a>, see <a href="https://github.com/arugula-salad/loam/blob/main/NOTICE">NOTICE</a>.</span>
-  <span>Built by <a href="https://jakegaylor.com">Jake Gaylor</a> on a three-node home cluster.</span>
 </footer>
 
 </div>
