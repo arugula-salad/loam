@@ -1,0 +1,199 @@
+# Rebuilds loam-e2b-fountain once a week with the latest agent CLIs (claude, codex, gemini,
+# opencode) and opens a pull request that pins it. images.yml alone never refreshes them: it
+# builds that image only when images/e2b-fountain's tree or the loam-e2b digest changes, and
+# reuses the old digest otherwise, so the CLIs stay at whatever npm had at the last such change.
+#
+# The refresh bumps ARG CLI_REFRESH in images/e2b-fountain/Containerfile on the branch
+# refresh/agent-clis. That is a new tree, so the image gets a new tree tag (and images.yml reuses
+# this build afterwards instead of the older one), and a new value just before the install
+# layer, so nothing above it is reused for it. Only loam-e2b-fountain is built: it is built FROM
+# the pinned loam-e2b, and scripts/pin-images.sh is given the pinned digests of the other images,
+# so the pull request changes the e2b-fountain digest and deploy/base/pinned-source and nothing
+# else. When it merges, main's images.yml run finds its source key pinned and builds nothing.
+#
+# A pull request rather than a pin on main: a new CLI can break the adapters that drive it, and
+# main is what a cluster applies. Whoever merges checks the versions in the description first;
+# for Fountain's template that check is its live adapter gate. A week with no new CLI opens
+# nothing. The branch belongs to this workflow and is rebuilt from main on every run, so a
+# refresh pull request that conflicts (another pin merged first) is fixed by running this again.
+#
+# A pull request opened with GITHUB_TOKEN starts no workflows, so ci and images don't run on it:
+# it changes only images/e2b-fountain and pins. Opening it needs the repository setting "Allow
+# GitHub Actions to create and approve pull requests"; without it the run pushes the branch,
+# fails, and links the comparison to open by hand.
+name: refresh-clis
+
+on:
+  schedule:
+    # Mondays, 06:17 UTC.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-clis
+  cancel-in-progress: false
+
+env:
+  API_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-api
+  NODELET_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-nodelet
+  GUEST_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-guest
+  E2B_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-e2b
+  FOUNTAIN_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-e2b-fountain
+  BRANCH: refresh/agent-clis
+
+jobs:
+  refresh:
+    # From main only: the branch is rebuilt from whatever this run checked out.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump CLI_REFRESH on the branch
+        id: bump
+        run: |
+          set -euo pipefail
+          file=images/e2b-fountain/Containerfile
+          stamp="$(date -u +%F)-run${GITHUB_RUN_NUMBER}"
+          git checkout -q -B "$BRANCH"
+          sed -i -E "s/^ARG CLI_REFRESH=.*/ARG CLI_REFRESH=${stamp}/" "$file"
+          grep -qx "ARG CLI_REFRESH=${stamp}" "$file"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -q -am "images/e2b-fountain: refresh the agent CLIs (${stamp})"
+
+          # What main pins now: the base this image is built FROM, and the image it replaces.
+          templates=deploy/components/e2b-fountain/templates.json
+          e2b=$(grep -oE "${E2B_IMAGE}@sha256:[0-9a-f]{64}" "$templates" | head -1 | cut -d@ -f2)
+          old=$(grep -oE "${FOUNTAIN_IMAGE}@sha256:[0-9a-f]{64}" "$templates" | head -1 | cut -d@ -f2)
+          [[ -n "$e2b" && -n "$old" ]] || { echo "no pinned loam-e2b or loam-e2b-fountain in $templates" >&2; exit 1; }
+          tree=$(git rev-parse HEAD:images/e2b-fountain)
+          base=${e2b#sha256:}
+          {
+            echo "stamp=${stamp}"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "e2b=${e2b}"
+            echo "old=${old}"
+            echo "tag=${FOUNTAIN_IMAGE}:tree-${tree}-${base::12}"
+          } >> "$GITHUB_OUTPUT"
+
+      # As images.yml builds it, tags included, so a later images.yml run with this tree and base
+      # reuses this digest.
+      - name: Build and push loam-e2b-fountain
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: images/e2b-fountain
+          file: images/e2b-fountain/Containerfile
+          platforms: linux/amd64
+          build-args: |
+            BASE=${{ env.E2B_IMAGE }}@${{ steps.bump.outputs.e2b }}
+          push: true
+          tags: |
+            ${{ env.FOUNTAIN_IMAGE }}:sha-${{ steps.bump.outputs.sha }}
+            ${{ steps.bump.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.bump.outputs.sha }}
+
+      - name: Compare the CLI versions
+        id: versions
+        env:
+          OLD: ${{ env.FOUNTAIN_IMAGE }}@${{ steps.bump.outputs.old }}
+          NEW: ${{ env.FOUNTAIN_IMAGE }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          versions() {
+            docker run --rm --user sprite -e HOME=/home/sprite "$1" bash -c '
+              for c in claude codex gemini opencode; do
+                v=$("$c" --version 2>/dev/null | head -1) || v=""
+                printf "%s\t%s\n" "$c" "${v:-unknown}"
+              done'
+          }
+          versions "$OLD" > old.txt
+          versions "$NEW" > new.txt
+          {
+            echo "| CLI | pinned on main | this build |"
+            echo "|---|---|---|"
+            paste old.txt new.txt | while IFS=$'\t' read -r cli o _ n; do
+              echo "| ${cli} | ${o} | ${n} |"
+            done
+          } > table.md
+          cat table.md >> "$GITHUB_STEP_SUMMARY"
+          if cmp -s old.txt new.txt; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No CLI changed since the pinned image: nothing to open." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # scripts/pin-images.sh pins all five images; the four not rebuilt here keep main's digests.
+      - name: Pin the image on the branch
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          FOUNTAIN_DIGEST: ${{ steps.build.outputs.digest }}
+          STAMP: ${{ steps.bump.outputs.stamp }}
+        run: |
+          set -euo pipefail
+          pinned_image() { grep -oE "$1@sha256:[0-9a-f]{64}" deploy/base/templates.json | head -1 | cut -d@ -f2; }
+          pinned_kustomize() { grep -A1 -E "newName: $1\$" "$2" | sed -n -E 's/.*digest: //p'; }
+          API_DIGEST=$(pinned_kustomize "$API_IMAGE" deploy/base/kustomization.yaml)
+          NODELET_DIGEST=$(pinned_kustomize "$NODELET_IMAGE" deploy/base/nodelet/kustomization.yaml)
+          GUEST_DIGEST=$(pinned_image "$GUEST_IMAGE")
+          E2B_DIGEST=$(pinned_image "$E2B_IMAGE")
+          SOURCE_KEY=$(scripts/source-key.sh)
+          export API_DIGEST NODELET_DIGEST GUEST_DIGEST E2B_DIGEST SOURCE_KEY
+          scripts/pin-images.sh
+          git add deploy/base/ deploy/components/
+          git commit -q -m "deploy(loam): pin images for the agent CLI refresh (${STAMP})"
+          # Only the e2b-fountain digest and the source key may have moved.
+          changed=$(git diff --name-only HEAD~1 HEAD | sort | tr '\n' ' ')
+          [[ "$changed" == "deploy/base/pinned-source deploy/components/e2b-fountain/templates.json " ]] \
+            || { echo "the pin changed more than e2b-fountain: ${changed}" >&2; exit 1; }
+          git push -q --force origin "HEAD:${BRANCH}"
+
+      - name: Open or update the pull request
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAMP: ${{ steps.bump.outputs.stamp }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Refresh the agent CLIs in loam-e2b-fountain (${STAMP})"
+          {
+            echo "loam-e2b-fountain rebuilt with the latest agent CLIs by [refresh-clis](${RUN_URL}), and pinned."
+            echo
+            cat table.md
+            echo
+            echo "Image: \`${FOUNTAIN_IMAGE}@${DIGEST}\`"
+            echo
+            echo "Merging deploys it: a cluster that applies deploy/ from main serves the e2b-fountain template from this image at its next sync. Check before merging that the clients of the template still work with these CLIs. For Fountain that check is its live adapter gate (managoat/fountain, \`.github/workflows/live-adapters.yml\`), which runs against loam's \`fountain\` template; run it against this image, or merge and run it at once, ready to revert."
+            echo
+            echo "This branch is rebuilt from main by every run of refresh-clis. If it conflicts, run the workflow again rather than rebasing."
+          } > body.md
+          number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh pr edit "$number" --title "$title" --body-file body.md
+            echo "Updated #${number}" >> "$GITHUB_STEP_SUMMARY"
+          elif ! gh pr create --base main --head "$BRANCH" --title "$title" --body-file body.md; then
+            url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
+            echo "Could not open the pull request (is \"Allow GitHub Actions to create and approve pull requests\" off?). Open it by hand: ${url}" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::could not open the pull request; open ${url} by hand"
+            exit 1
+          fi

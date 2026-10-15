@@ -8,8 +8,10 @@
 # Built by .github/workflows/images.yml as ghcr.io/arugula-salad/loam-e2b-fountain, FROM the
 # loam-e2b digest the same run built or reused; by hand with
 #   docker build --build-arg BASE=ghcr.io/arugula-salad/loam-e2b@sha256:... images/e2b-fountain
-# The agent CLIs float: they are whatever npm has when this directory's tree last changed. The
-# ACP adapters the client drives them through are pinned, and it installs them itself.
+# The agent CLIs float: they are whatever npm has when this directory's tree last changed. A
+# weekly run of .github/workflows/refresh-clis.yml changes it on purpose, by bumping CLI_REFRESH
+# below, and opens a pull request that pins the rebuilt image. The ACP adapters the client drives
+# the CLIs through are pinned, and it installs them itself.
 ARG BASE
 FROM ${BASE}
 
@@ -34,7 +36,12 @@ RUN export HOME=/home/sprite && mkdir -p /home/sprite/.local/bin /home/sprite/.n
     && npm config set prefix /home/sprite/.npm-global \
     && curl -fsSL https://bun.sh/install | bash
 
-RUN export HOME=/home/sprite && npm install -g --no-progress --silent \
+# A new CLI_REFRESH is a new tree, so images.yml's reuse by tree doesn't apply, and a new value
+# for this layer, so no layer cache does either: the install below takes npm's latest. Set by
+# .github/workflows/refresh-clis.yml; never needs editing by hand.
+ARG CLI_REFRESH=2026-10-15
+RUN echo "agent CLIs as of ${CLI_REFRESH}" && export HOME=/home/sprite \
+    && npm install -g --no-progress --silent \
       @anthropic-ai/claude-code @openai/codex @google/gemini-cli \
     && /home/sprite/.bun/bin/bun install -g opencode-ai \
     && claude --version && codex --version && gemini --version
