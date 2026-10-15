@@ -1,5 +1,6 @@
 # Builds and tests the TypeScript client (clients/ts) on pull requests that touch it, and on a
-# `ts-v<version>` tag publishes it as @arugula-salad/loam to npmjs.com (with provenance, token in the NPM_TOKEN secret),
+# `ts-v<version>` tag publishes it as @arugula-salad/loam to npmjs.com through npm trusted publishing (GitHub OIDC, so no
+# npm token is stored anywhere; the package's trusted publisher on npmjs.com names this workflow),
 # and attaches its one-file build, loam.mjs, to a GitHub release of the tag for callers that vendor
 # a file instead of installing a package (clients/ts/README.md, "Install").
 #
@@ -57,15 +58,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
       - name: The tag matches the version
         run: |
           want="ts-v$(node -p 'require("./package.json").version')"
           [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME, package.json says $want"; exit 1; }
       - run: npm ci
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # dist/ for the release's loam.mjs, whether or not the publish below runs.
+      - run: npm run build
+      # A version already on npm (0.1.0 went up by hand, since npm only lets a trusted publisher be set
+      # on a package that exists) is skipped, and the tag still gets its release below.
+      - name: Publish to npm
+        run: |
+          v="$(node -p 'require("./package.json").version')"
+          if npm view "@arugula-salad/loam@$v" version >/dev/null 2>&1; then
+            echo "@arugula-salad/loam@$v is already on npm"
+          else
+            npm publish --provenance --access public
+          fi
       - name: Release with loam.mjs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
