@@ -248,7 +248,7 @@ kubectl -n loam get pods -o wide      # loam-api, and a loam-nodelet per labelle
 curl -s https://api.loam.example.com/healthz   # ok
 ```
 
-A browser at `https://api.loam.example.com/` gets loam's landing page, and `/docs` the user docs.
+`https://api.loam.example.com/docs` serves the user docs, the same pages as https://loam.agentsh.it/docs/.
 
 ## 6. A project, a key, and the E2B SDK
 

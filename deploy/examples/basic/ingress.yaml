@@ -1,5 +1,5 @@
 # Every name loam answers on goes to loam-api, which tells them apart by Host:
-#   api.loam.example.com                        the API, the docs at /docs, the landing page at /
+#   api.loam.example.com                        the API and the docs at /docs
 #   <name>--<project>.loam.example.com          a sandbox's URL
 #   <port>--<name>--<project>.loam.example.com  a sandbox's port
 #   api.e2b.loam.example.com                    the E2B adapter's control plane (docs/E2B.md)

@@ -9,7 +9,7 @@ node, and the next request wakes it on whichever node has room, with its process
 You drive it through a native HTTP API, the `loam` CLI, Go and TypeScript clients, or the
 official E2B SDKs, unmodified.
 
-Project page: https://loam.inevitable.fyi
+Project page and docs: https://loam.agentsh.it
 
 ## Why
 
