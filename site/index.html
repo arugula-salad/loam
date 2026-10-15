@@ -3,232 +3,453 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>loam</title>
-<meta name="description" content="Firecracker sandboxes on Kubernetes. Idle sandboxes sleep as snapshots in object storage and wake on any node. Speaks E2B's API, so the official SDKs work unchanged.">
-<meta property="og:title" content="loam">
-<meta property="og:description" content="Firecracker sandboxes on Kubernetes, with E2B's API on top.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237a5230'/%3E%3Cpath d='M7 22h18M9 17h14M12 12h8' stroke='%23f3e7d6' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>loam, sandboxes on Kubernetes</title>
+<meta name="description" content="Firecracker sandboxes on the Kubernetes you already run. Idle sandboxes keep their processes in a snapshot and give their VM memory back to the node. The official E2B SDKs are a familiar way in.">
+<meta property="og:title" content="loam, sandboxes on Kubernetes">
+<meta property="og:description" content="Firecracker sandboxes on the Kubernetes you already run. Idle sandboxes sleep as snapshots in your S3 bucket and wake on whichever node has room.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6b3a'/%3E%3Cpath d='M7 22h18M9 17h14M12 12h8' stroke='%23f6f6f4' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #faf6f0; --surface: #f1e9dd; --ink: #231c15; --muted: #6b5d4f; --line: #ddd0bf;
-  --accent: #8a5a2b; --accent-ink: #fff8ef; --code-bg: #231c15; --code-ink: #f3e7d6; --code-dim: #a8957f; --ok: #3f6b3a;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+  --bg: #f6f6f4;
+  --surface: #ecece9;
+  --ink: #161715;
+  --muted: #5b5e59;
+  --line: #d6d7d2;
+  --accent: #2f6b3a;
+  --accent-ink: #f6f6f4;
+  --code-bg: #ecece9;
+  --code-ink: #161715;
+  --code-dim: #6b6e68;
+  --sans: "Instrument Sans", ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #16120e; --surface: #201a14; --ink: #efe5d8; --muted: #a8977f; --line: #3a3026;
-    --accent: #d39a5d; --accent-ink: #1a130c; --code-bg: #0f0c09; --code-ink: #efe5d8; --code-dim: #8c7b66; --ok: #8fbf7f;
+    --bg: #141514;
+    --surface: #1d1f1d;
+    --ink: #e9e9e6;
+    --muted: #a3a6a1;
+    --line: #2f312f;
+    --accent: #8cc48f;
+    --accent-ink: #141514;
+    --code-bg: #1b1d1b;
+    --code-ink: #e9e9e6;
+    --code-dim: #8e918c;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #16120e; --surface: #201a14; --ink: #efe5d8; --muted: #a8977f; --line: #3a3026;
-  --accent: #d39a5d; --accent-ink: #1a130c; --code-bg: #0f0c09; --code-ink: #efe5d8; --code-dim: #8c7b66; --ok: #8fbf7f;
+  --bg: #141514;
+  --surface: #1d1f1d;
+  --ink: #e9e9e6;
+  --muted: #a3a6a1;
+  --line: #2f312f;
+  --accent: #8cc48f;
+  --accent-ink: #141514;
+  --code-bg: #1b1d1b;
+  --code-ink: #e9e9e6;
+  --code-dim: #8e918c;
 }
+
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 var(--sans); }
-a { color: var(--accent); text-underline-offset: 3px; }
-.wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
-header.top { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
-.brand { font: 700 20px var(--mono); color: var(--ink); text-decoration: none; letter-spacing: -0.5px; }
-.brand span { color: var(--accent); }
-nav a { margin-left: 18px; color: var(--muted); text-decoration: none; font-size: 15px; }
-nav a:hover { color: var(--ink); }
-.hero { padding: 48px 0 32px; display: grid; gap: 36px; grid-template-columns: 1.05fr 1fr; align-items: center; }
-h1 { font-size: clamp(32px, 5vw, 50px); line-height: 1.08; letter-spacing: -1.2px; margin: 0 0 18px; }
-.lede { font-size: 19px; color: var(--muted); margin: 0 0 26px; max-width: 34em; }
-.cta { display: flex; gap: 12px; flex-wrap: wrap; }
-.btn { display: inline-block; padding: 11px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 16px; }
-.btn.primary { background: var(--accent); color: var(--accent-ink); }
-.btn.ghost { border: 1px solid var(--line); color: var(--ink); }
-pre { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 20px 22px; overflow-x: auto; font: 14px/1.65 var(--mono); }
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 17px/1.6 var(--sans);
+  overflow-x: hidden;
+}
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; margin: 0; overflow-wrap: anywhere; }
+p { margin: 0 0 1em; }
+p:last-child { margin-bottom: 0; }
+ul { margin: 0; padding-left: 1.2em; }
+li { margin: 0.3em 0; }
+code {
+  font: 0.88em var(--mono);
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+  overflow-wrap: anywhere;
+}
+pre {
+  margin: 0;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--line);
+  padding: 16px 18px;
+  overflow-x: auto;
+  font: 13.5px/1.6 var(--mono);
+  font-variant-numeric: tabular-nums;
+  tab-size: 4;
+}
+pre code { font: inherit; background: none; padding: 0; }
 pre .c { color: var(--code-dim); }
-pre .k { color: #e0a96d; }
-pre .s { color: #a9c98f; }
-.caption { font-size: 14px; color: var(--muted); margin-top: 10px; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 28px 0 8px; }
-.stat { background: var(--surface); padding: 20px 18px; }
-.stat b { display: block; font: 700 28px var(--mono); letter-spacing: -1px; }
-.stat span { color: var(--muted); font-size: 14px; line-height: 1.4; display: block; margin-top: 4px; }
-.note { font-size: 14px; color: var(--muted); }
-section { padding: 44px 0; border-top: 1px solid var(--line); }
-h2 { font-size: 28px; letter-spacing: -0.5px; margin: 0 0 14px; }
-h3 { font-size: 18px; margin: 0 0 6px; }
-.cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 22px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
-.card p { margin: 0; color: var(--muted); font-size: 15.5px; }
-.diagram { margin-top: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+pre .k { color: var(--accent); }
+pre + pre { border-top: 0; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 14.5px; line-height: 1.5; }
+
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+header.top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  padding: 22px 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.brand { font: 500 19px var(--mono); color: var(--ink); text-decoration: none; letter-spacing: -0.02em; }
+.brand span { color: var(--accent); }
+nav.main ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+nav.main li { margin: 0; }
+nav.main a { color: var(--muted); text-decoration: none; font-size: 15px; }
+nav.main a:hover, nav.main a:focus-visible { color: var(--ink); text-decoration: underline; }
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 40px;
+  align-items: start;
+  padding: 52px 0 44px;
+}
+.hero > * { min-width: 0; }
+h1 { font-size: clamp(30px, 4.6vw, 46px); line-height: 1.1; letter-spacing: -0.025em; margin-bottom: 18px; max-width: 14em; }
+.lede { font-size: 18.5px; color: var(--muted); max-width: 32em; margin-bottom: 24px; }
+.cta { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.btn {
+  display: inline-block;
+  padding: 10px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-weight: 500;
+  text-decoration: none;
+  font-size: 15.5px;
+  line-height: 1.3;
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.ghost { color: var(--ink); border-color: var(--line); }
+.btn.ghost:hover { border-color: var(--ink); }
+.fit { font-size: 14.5px; color: var(--muted); max-width: 34em; }
+.caption { font-size: 14px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+
+section.row {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 24px 40px;
+  padding: 40px 0;
+  border-top: 1px solid var(--line);
+}
+section.row > * { min-width: 0; }
+.rail {
+  font: 500 12.5px/1.5 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-top: 6px;
+}
+h2 { font-size: 24px; margin-bottom: 14px; }
+h3 { font-size: 16.5px; margin-bottom: 8px; }
+.content > p, .content > ul { max-width: 40em; }
+
+.diagram { margin: 4px 0 22px; border: 1px solid var(--line); padding: 14px; background: var(--bg); }
 .diagram svg { width: 100%; height: auto; display: block; }
-.diagram text { font-family: var(--sans); }
-.two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
-ul.check, ul.gap { list-style: none; padding: 0; margin: 12px 0 0; }
-ul.check li, ul.gap li { padding: 6px 0 6px 26px; position: relative; font-size: 15.5px; }
-ul.check li::before { content: "\2713"; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
-ul.gap li::before { content: "\2014"; position: absolute; left: 0; color: var(--muted); }
-code { font: 0.9em var(--mono); background: var(--surface); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; }
-footer { padding: 36px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-@media (max-width: 820px) {
-  .hero, .two { grid-template-columns: 1fr; }
-  .cols { grid-template-columns: 1fr; }
-  .stats { grid-template-columns: repeat(2, 1fr); }
-  nav a:not(.gh) { display: none; }
+.diagram text { font-family: var(--mono); }
+
+.scroll { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); }
+th { font: 500 12.5px/1.5 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border-bottom-color: var(--ink); }
+td:last-child, th:last-child { padding-right: 0; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.measure, table.compare { min-width: 560px; }
+table.measure td:first-child { min-width: 14em; }
+table.compare td:first-child { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
+table.compare td { min-width: 12em; }
+
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 32px; }
+.two > * { min-width: 0; }
+.two ul { padding-left: 1.1em; font-size: 15.5px; }
+.req li { margin: 0.25em 0; }
+
+footer {
+  padding: 32px 0 56px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+@media (max-width: 860px) {
+  .hero { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 40px 0 36px; }
+  section.row { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 32px 0; }
+  .rail { padding-top: 0; }
+  .two { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  body { font-size: 16px; }
+  pre { padding: 14px; font-size: 12.5px; }
+  h2 { font-size: 22px; }
 }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header class="top">
-    <a class="brand" href="/">loam<span>.</span></a>
-    <nav>
-      <a href="#how">How it works</a>
-      <a href="#e2b">E2B</a>
-      <a href="#run">Run it</a>
-      <a href="/docs/">Docs</a>
-      <a class="gh" href="https://github.com/arugula-salad/loam">GitHub</a>
-    </nav>
-  </header>
 
-  <div class="hero">
-    <div>
-      <h1>Firecracker sandboxes on Kubernetes.</h1>
-      <p class="lede">Every sandbox is a microVM that runs only while it's awake. Idle ones sleep as snapshots in object storage and wake on any node. loam speaks E2B's API, so the official SDKs work against your own cluster unchanged.</p>
-      <div class="cta">
-        <a class="btn primary" href="https://github.com/arugula-salad/loam">Get it on GitHub</a>
-        <a class="btn ghost" href="/docs/">Read the docs</a>
-      </div>
+<header class="top">
+  <a class="brand" href="/">loam<span>.</span></a>
+  <nav class="main" aria-label="Page">
+    <ul>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#measurements">Measurements</a></li>
+      <li><a href="#e2b">E2B</a></li>
+      <li><a href="#compared">Compared</a></li>
+      <li><a href="#run">Run it</a></li>
+      <li><a href="/docs/">Docs</a></li>
+      <li><a href="https://github.com/arugula-salad/loam">GitHub</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main>
+
+<section class="hero" aria-labelledby="headline">
+  <div>
+    <h1 id="headline">Firecracker sandboxes on the Kubernetes you already run.</h1>
+    <p class="lede">By default, after 300 seconds without activity, loam pauses a sandbox, saves its memory and disk to your S3-compatible store and gives its VM memory back to the node. The next request restores its processes on a node with room. The official E2B SDKs are a familiar way in.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/arugula-salad/loam/blob/main/docs/INSTALL.md">Install guide</a>
+      <a class="btn ghost" href="https://github.com/arugula-salad/loam">Source on GitHub</a>
     </div>
-    <div>
-<pre><span class="c"># point the E2B SDK at your loam</span>
-<span class="k">export</span> E2B_DOMAIN=<span class="s">e2b.loam.example.com</span>
-<span class="k">export</span> E2B_API_KEY=<span class="s">loam_...</span>
-
-<span class="k">from</span> e2b <span class="k">import</span> Sandbox
+    <p class="fit">You run loam yourself, on x86_64 nodes with KVM. It is young, with one deployment so far, Jake Gaylor's three-node home cluster. The API server runs as a single replica, and there is no hosted service.</p>
+  </div>
+  <div>
+<pre><code><span class="c"># point the E2B SDK at your loam</span>
+pip install e2b
+<span class="k">export</span> E2B_DOMAIN=e2b.loam.example.com
+<span class="k">export</span> E2B_API_KEY=loam_...</code></pre>
+<pre><code><span class="k">from</span> e2b <span class="k">import</span> Sandbox
 
 sbx = Sandbox.create()
-r = sbx.commands.run(<span class="s">"uname -a"</span>)
-print(r.stdout)   <span class="c"># a Firecracker guest</span>
-sbx.pause()       <span class="c"># memory + disk to S3</span></pre>
-      <p class="caption">Same code you'd run against hosted E2B. Only the domain and key change.</p>
-    </div>
+print(sbx.commands.run(<span class="c">"uname -a"</span>).stdout)
+sbx.pause()     <span class="c"># snapshot to S3, VM off the node</span>
+sbx.connect()   <span class="c"># wake it, processes intact</span></code></pre>
+    <p class="caption">The official E2B Python and JS SDKs, unmodified, pass 26 of 26 conformance steps against loam, 13 each. That is the surface the adapter serves. Template builds are not supported. The full list is under <a href="#e2b">E2B coverage</a>.</p>
   </div>
+</section>
 
-  <div class="stats">
-    <div class="stat"><b>29 ms</b><span>resume a paused sandbox on the node holding its snapshot</span></div>
-    <div class="stat"><b>0.42 s</b><span>wake on a different node, memory paged in lazily</span></div>
-    <div class="stat"><b>28 ms</b><span>fork a running sandbox</span></div>
-    <div class="stat"><b>26 / 26</b><span>E2B Python and JS SDK conformance steps passing</span></div>
-  </div>
-  <p class="note">Measured on a three-node home cluster with a 2 GiB base template. Methodology in the repo's test write-ups.</p>
-
-  <section id="how">
-    <h2>How it works</h2>
-    <p>A sandbox is a record in Postgres. Each KVM node runs one warm worker pod, the nodelet, which boots Firecracker VMs inside itself, owns their network, and pauses them to an S3 bucket when they go idle. Waking a sandbox never waits on the Kubernetes scheduler or etcd.</p>
-    <div class="diagram" role="img" aria-label="Clients call loam-api, which records sandboxes in Postgres and sends work to nodelet pods on each node. Nodelets run Firecracker microVMs and store snapshots in an S3 bucket.">
-      <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+<section class="row" id="how" aria-labelledby="how-h">
+  <div class="rail" aria-hidden="true">How it works</div>
+  <div class="content">
+    <h2 id="how-h">Sleep and wake</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="diagram-title diagram-desc">
+        <title id="diagram-title">How loam is laid out</title>
+        <desc id="diagram-desc">Clients using the E2B SDK, the CLI or the Go and TypeScript clients call loam-api, which keeps sandbox records in Postgres and sends work to a nodelet pod on each node. Nodelets run Firecracker VMs and have room for more. Pausing a VM writes a snapshot to an S3 bucket, and waking reads it back on any node.</desc>
         <defs>
-          <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
         </defs>
-        <g font-size="15" fill="var(--ink)">
-          <rect x="10" y="40" width="160" height="70" rx="10" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="90" y="70" text-anchor="middle" font-weight="700">Clients</text>
-          <text x="90" y="92" text-anchor="middle" font-size="13" fill="var(--muted)">E2B SDK · CLI · Go · TS</text>
+        <g font-size="14" fill="var(--ink)">
+          <rect x="10" y="40" width="160" height="70" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="90" y="70" text-anchor="middle" font-weight="500">clients</text>
+          <text x="90" y="92" text-anchor="middle" font-size="12" fill="var(--muted)">E2B SDK, CLI, Go, TS</text>
 
-          <rect x="240" y="40" width="170" height="70" rx="10" fill="var(--bg)" stroke="var(--accent)"/>
-          <text x="325" y="70" text-anchor="middle" font-weight="700">loam-api</text>
-          <text x="325" y="92" text-anchor="middle" font-size="13" fill="var(--muted)">placement · lifecycle</text>
+          <rect x="240" y="40" width="170" height="70" fill="var(--bg)" stroke="var(--ink)"/>
+          <text x="325" y="70" text-anchor="middle" font-weight="500">loam-api</text>
+          <text x="325" y="92" text-anchor="middle" font-size="12" fill="var(--muted)">placement, lifecycle</text>
 
-          <rect x="240" y="200" width="170" height="60" rx="10" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="325" y="235" text-anchor="middle" font-weight="700">Postgres</text>
+          <rect x="240" y="200" width="170" height="60" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="325" y="230" text-anchor="middle" font-weight="500">Postgres</text>
+          <text x="325" y="248" text-anchor="middle" font-size="12" fill="var(--muted)">sandbox records</text>
 
-          <rect x="480" y="20" width="250" height="110" rx="10" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="500" y="44" font-weight="700">nodelet pod · node A</text>
-          <rect x="500" y="60" width="62" height="50" rx="7" fill="var(--surface)" stroke="var(--accent)"/><text x="531" y="90" text-anchor="middle" font-size="13">VM</text>
-          <rect x="574" y="60" width="62" height="50" rx="7" fill="var(--surface)" stroke="var(--accent)"/><text x="605" y="90" text-anchor="middle" font-size="13">VM</text>
-          <rect x="648" y="60" width="62" height="50" rx="7" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="679" y="90" text-anchor="middle" font-size="12" fill="var(--muted)">room</text>
+          <rect x="480" y="20" width="250" height="110" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="500" y="44" font-weight="500">nodelet pod, node A</text>
+          <rect x="500" y="60" width="62" height="50" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/><text x="531" y="90" text-anchor="middle" font-size="12">VM</text>
+          <rect x="574" y="60" width="62" height="50" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/><text x="605" y="90" text-anchor="middle" font-size="12">VM</text>
+          <rect x="648" y="60" width="62" height="50" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="679" y="90" text-anchor="middle" font-size="11" fill="var(--muted)">room</text>
 
-          <rect x="480" y="160" width="250" height="110" rx="10" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="500" y="184" font-weight="700">nodelet pod · node B</text>
-          <rect x="500" y="200" width="62" height="50" rx="7" fill="var(--surface)" stroke="var(--accent)"/><text x="531" y="230" text-anchor="middle" font-size="13">VM</text>
-          <rect x="574" y="200" width="62" height="50" rx="7" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="605" y="230" text-anchor="middle" font-size="12" fill="var(--muted)">room</text>
+          <rect x="480" y="160" width="250" height="110" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="500" y="184" font-weight="500">nodelet pod, node B</text>
+          <rect x="500" y="200" width="62" height="50" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/><text x="531" y="230" text-anchor="middle" font-size="12">VM</text>
+          <rect x="574" y="200" width="62" height="50" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="605" y="230" text-anchor="middle" font-size="11" fill="var(--muted)">room</text>
 
-          <rect x="790" y="110" width="100" height="80" rx="10" fill="var(--bg)" stroke="var(--line)"/>
-          <text x="840" y="145" text-anchor="middle" font-weight="700">S3</text>
+          <rect x="790" y="110" width="100" height="80" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="840" y="145" text-anchor="middle" font-weight="500">S3</text>
           <text x="840" y="166" text-anchor="middle" font-size="12" fill="var(--muted)">snapshots</text>
         </g>
-        <g stroke="var(--muted)" stroke-width="1.6" fill="none" marker-end="url(#a)">
+        <g stroke="var(--muted)" stroke-width="1.4" fill="none" marker-end="url(#arrow)">
           <path d="M170 75H236"/>
           <path d="M325 110V196"/>
           <path d="M410 70H476"/>
           <path d="M410 90C445 90 445 215 476 215"/>
           <path d="M730 75C765 75 765 135 786 140"/>
-          <path d="M730 215C765 215 765 165 786 160"/>
+          <path d="M786 160C765 165 765 215 730 215"/>
         </g>
-        <text x="770" y="70" font-size="12" fill="var(--muted)">pause</text>
-        <text x="772" y="240" font-size="12" fill="var(--muted)">wake</text>
+        <text x="760" y="68" font-size="12" fill="var(--muted)">pause</text>
+        <text x="762" y="242" font-size="12" fill="var(--muted)">wake</text>
       </svg>
     </div>
-    <div class="cols">
-      <div class="card"><h3>Every state is a snapshot</h3><p>Pause, checkpoint and fork all write the same layered format, dirty blocks in 2 MiB zstd frames. A paused sandbox costs its diff in the bucket and nothing on the nodes.</p></div>
-      <div class="card"><h3>Wake anywhere</h3><p>Wake prefers the node that already has the snapshot and falls back to any node with room. Drain a node and its VMs pause, upload and come back elsewhere with their processes intact.</p></div>
-      <div class="card"><h3>The network is the boundary</h3><p>Egress by hostname, checked at DNS and SNI. Secrets swapped in on the wire so they never enter the guest or its snapshot. A per-sandbox OIDC token for identity.</p></div>
-    </div>
-  </section>
+    <p>A sandbox is a record in Postgres. No pod is created for it. Each KVM node you label runs one long-lived worker pod, the nodelet, which boots Firecracker VMs inside itself, owns their network and keeps a cache of snapshot layers on an XFS directory with reflinks.</p>
+    <p>When a sandbox goes idle, 300 seconds by default, the nodelet pauses it and uploads the dirty memory and disk blocks to your bucket. The VM is gone from the node and its memory is free for other work. The node still keeps a cache of its layers on disk. The next request wakes it on the node that has the snapshot locally, or on any node with room, with memory paged in lazily through userfaultfd. Waking never waits on the scheduler or etcd.</p>
+    <p>Pause, checkpoint and fork write the same layered format, so the native API can save a sandbox at a point in time and branch it. Firecracker is upstream v1.17.0. The components are in <a href="https://github.com/arugula-salad/loam/blob/main/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a> and the first steps in <a href="/docs/primer">the primer</a>.</p>
+  </div>
+</section>
 
-  <section id="e2b">
-    <h2>E2B's API, on your cluster</h2>
-    <p>The adapter runs E2B's own envd inside the guest, so commands, files, streaming and signed file URLs behave the way the SDKs expect. Every E2B sandbox is also an ordinary loam sandbox, visible to the loam CLI and API.</p>
+<section class="row" id="measurements" aria-labelledby="measure-h">
+  <div class="rail" aria-hidden="true">Measurements</div>
+  <div class="content">
+    <h2 id="measure-h">What was measured</h2>
+    <div class="scroll">
+      <table class="measure">
+        <thead><tr><th scope="col">Operation</th><th scope="col">Time</th><th scope="col">Condition</th></tr></thead>
+        <tbody>
+          <tr><td>Resume a paused sandbox on the same node</td><td class="num">29 ms</td><td>Single-node phase, XFS reflinks</td></tr>
+          <tr><td>Pause, memory and disk</td><td class="num">320 ms</td><td>Single-node phase, XFS reflinks</td></tr>
+          <tr><td>Fork from a memory checkpoint</td><td class="num">28 ms</td><td>Single-node phase, XFS reflinks</td></tr>
+          <tr><td>Wake on another node, memory loaded lazily</td><td class="num">0.42 s</td><td>Cross-node phase, 2 GiB base template</td></tr>
+          <tr><td>Drain a node with two awake sandboxes</td><td class="num">13 s</td><td>Cross-node phase, 2 GiB base template</td></tr>
+          <tr><td>Wake saved sandboxes after a lost node</td><td class="num">5.8 s</td><td>Cross-node phase, 2 GiB base template</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="caption">These are snapshot operations, measured on a three-node home k3s cluster on x86 bare metal with Garage as the store. They are not cold start numbers or percentiles. The lost-node case wakes paused and stopped sandboxes from saved state. An awake sandbox's unsaved work on that node is gone. The runs are written up in <a href="https://github.com/arugula-salad/loam/blob/main/docs/PHASE2-TEST.md">docs/PHASE2-TEST.md</a>.</p>
+  </div>
+</section>
+
+<section class="row" id="e2b" aria-labelledby="e2b-h">
+  <div class="rail" aria-hidden="true">E2B coverage</div>
+  <div class="content">
+    <h2 id="e2b-h">What the adapter serves</h2>
+    <p>Set <code>E2B_DOMAIN</code> and <code>E2B_API_KEY</code> and the official SDKs talk to loam. Every E2B sandbox is an ordinary loam sandbox.</p>
     <div class="two">
       <div>
-        <h3>Works today</h3>
-        <ul class="check">
-          <li>Create, get, list, kill, set timeout</li>
-          <li>Commands with streaming, background processes, stdin and PTY</li>
-          <li>Files, plus signed upload and download URLs</li>
-          <li>Pause, resume, connect and auto-resume</li>
+        <h3>Supported</h3>
+        <ul>
+          <li>Create, get, kill, set timeout, and list with metadata and state filters</li>
+          <li>Commands and files through E2B's own envd (0.9.0) in the guest, with streaming and signed file URLs</li>
+          <li>Pause with memory or disk only, connect and resume, auto pause and auto resume</li>
           <li>Sandbox ports at <code>&lt;port&gt;-&lt;id&gt;.&lt;domain&gt;</code></li>
-          <li>Internet access toggles and hostname egress rules</li>
+          <li>The internet access toggle and <code>allowOut</code> and <code>denyOut</code> rules by name</li>
+          <li>Metrics as one sample, and health</li>
         </ul>
       </div>
       <div>
-        <h3>Not yet</h3>
-        <ul class="gap">
-          <li>Template build API (loam builds templates from OCI images)</li>
-          <li>E2B's snapshot and fork endpoints (loam's own API has both)</li>
-          <li>Volumes, sandbox logs and metrics history</li>
-          <li>CIDR and IP egress rules</li>
-          <li>Team and API key management through E2B's API</li>
+        <h3>Not supported</h3>
+        <ul>
+          <li>The template build API</li>
+          <li>E2B's snapshot and fork endpoints</li>
+          <li>Volumes</li>
+          <li>Sandbox logs and metrics history</li>
+          <li>CIDR and IP egress rules, since loam's rules are names only</li>
+          <li><code>secure:false</code> and <code>allowPublicTraffic:false</code>, both refused</li>
         </ul>
       </div>
     </div>
-  </section>
+    <p class="caption">Checkpoints and forks exist in loam's native API. The full list and the differences from hosted E2B are in <a href="https://github.com/arugula-salad/loam/blob/main/docs/E2B.md">docs/E2B.md</a>.</p>
+  </div>
+</section>
 
-  <section id="run">
-    <h2>Run it</h2>
-    <div class="two">
-      <div>
-        <p>loam needs x86 nodes with KVM, so bare metal or a cloud instance with nested virtualization, on Linux 6.1 or newer. Beyond that it asks for a device plugin that exposes <code>/dev/kvm</code>, <code>/dev/net/tun</code> and <code>/dev/userfaultfd</code>, an XFS directory with reflinks for each node's cache, an S3-compatible bucket and Postgres.</p>
-        <p>The nodelet runs unprivileged with a short list of added capabilities. The install is a kustomize base with an example overlay; <a href="https://github.com/arugula-salad/loam/blob/main/docs/INSTALL.md">docs/INSTALL.md</a> walks through it, from the device plugin to your first API key.</p>
-      </div>
-<pre><span class="c"># a kustomize base, and an overlay of your own</span>
-git clone https://github.com/arugula-salad/loam
-cd loam/deploy/examples/basic
-<span class="c"># set your domain, S3 bucket, Postgres and secrets</span>
-kubectl apply -k .
-
-<span class="c"># the native CLI</span>
-loam login --url https://api.loam.example.com
-loam create dev --template base
-loam exec dev -- python3 -V
-loam pause dev</pre>
+<section class="row" id="compared" aria-labelledby="compared-h">
+  <div class="rail" aria-hidden="true">Compared</div>
+  <div class="content">
+    <h2 id="compared-h">Where else sandboxes run</h2>
+    <div class="scroll">
+      <table class="compare">
+        <thead><tr><th scope="col">Project</th><th scope="col">Where a sandbox runs</th><th scope="col">How you get it</th></tr></thead>
+        <tbody>
+          <tr><td>Hosted E2B</td><td>Firecracker VMs on E2B's machines</td><td>Their service</td></tr>
+          <tr><td>E2B self-hosted</td><td>E2B's own stack on Nomad and Consul</td><td>Terraform. GCP is supported, AWS is beta</td></tr>
+          <tr><td>scitix/agent-sandbox</td><td>A pod from a warm pool. MicroVMs are listed as coming soon</td><td>A Kubernetes operator with an E2B-compatible server</td></tr>
+          <tr><td>kubernetes-sigs/agent-sandbox</td><td>A Kubernetes-native sandbox API, alpha</td><td>On your cluster. It does not speak E2B's API</td></tr>
+          <tr><td>loam</td><td>A Firecracker VM inside a nodelet pod on your nodes, a snapshot in your bucket while idle</td><td>A kustomize base and an overlay on the cluster you have</td></tr>
+        </tbody>
+      </table>
     </div>
-    <p class="note">loam is young. The API server runs as one replica, and VMs share their nodelet's cgroup. Bug reports welcome.</p>
-  </section>
+    <p class="caption">What you give up with loam is maturity. It has one deployment, runs on x86_64 only, and the E2B gaps above are real.</p>
+  </div>
+</section>
 
-  <footer>
-    <span>loam · Apache-2.0 · snapshot store derived from <a href="https://github.com/e2b-dev/infra">e2b-dev/infra</a></span>
-    <span>Built by <a href="https://jakegaylor.com">Jake Gaylor</a> on a three-node home cluster</span>
-  </footer>
+<section class="row" id="boundary" aria-labelledby="boundary-h">
+  <div class="rail" aria-hidden="true">The boundary</div>
+  <div class="content">
+    <h2 id="boundary-h">What a sandbox can reach</h2>
+    <p>The nodelet enforces the boundary outside the guest. The nodelet drops a VM's traffic to private address ranges, which on a typical cluster covers the node, the pod network and the LAN. Egress rules are names, exact or wildcard. The DNS forwarder refuses names outside the rules and strips private answers, and a transparent proxy on TCP 80 and 443 reads the Host or SNI, resolves the name itself and dials it, so another site on the same CDN address stays out. A sandbox with egress rules gets TCP over IPv4 only, and UDP, QUIC, ICMP and IPv6 are blocked.</p>
+    <p>Brokered secrets cover the hosts you configure them for. The sandbox's environment holds a placeholder and the nodelet substitutes the real value on the wire, so it never reaches guest memory, guest disk or a snapshot. A secret your application writes into the guest itself is its own business. A sandbox can ask its local socket for a short-lived JWT naming its project and ID, verifiable from outside.</p>
+    <p>The nodelet is unprivileged, with every capability dropped and eight added back, a read-only root and the default seccomp profile. The gap is cgroups. VMs share their nodelet's cgroup and its memory limit, with no cgroup per VM. Admission checks each nodelet's configured memory budget.</p>
+  </div>
+</section>
+
+<section class="row" id="run" aria-labelledby="run-h">
+  <div class="rail" aria-hidden="true">Run it</div>
+  <div class="content">
+    <h2 id="run-h">What you need</h2>
+    <ul class="req">
+      <li>x86_64 nodes with KVM, so bare metal or an instance with nested virtualization</li>
+      <li>Linux 6.1 or newer on those nodes, for <code>/dev/userfaultfd</code></li>
+      <li>A device plugin exposing <code>/dev/kvm</code>, <code>/dev/net/tun</code> and <code>/dev/userfaultfd</code> as resources</li>
+      <li>An XFS directory with reflinks on each node. An XFS image file on ext4 works</li>
+      <li>Postgres</li>
+      <li>An S3-compatible bucket</li>
+      <li>Wildcard DNS and a wildcard certificate for the API, port and E2B domains</li>
+    </ul>
+    <p style="margin-top:1em">k3s is what it runs on today. If that list fits, <a href="https://github.com/arugula-salad/loam/blob/main/docs/INSTALL.md">docs/INSTALL.md</a> goes from the device plugin to your first key, with the kustomize base in <code>deploy/base</code> and an overlay of your own started from the example.</p>
+<pre><code>git clone https://github.com/arugula-salad/loam
+cp -r loam/deploy/examples/basic my-loam
+<span class="c"># set your domain, store URL, ingress and secrets in my-loam</span>
+kubectl kustomize my-loam | less
+kubectl apply -k my-loam</code></pre>
+    <p style="margin-top:1em">The native CLI adds exec sessions, port URLs, checkpoints, forks, egress rules and brokered secrets.</p>
+<pre><code>go install github.com/arugula-salad/loam/cmd/loam@latest
+<span class="k">export</span> LOAM_API_URL=https://api.loam.example.com LOAM_TOKEN=loam_...
+loam create scratch
+loam run scratch -- uname -a
+loam pause scratch
+loam run scratch -- uptime     <span class="c"># wakes it first</span></code></pre>
+    <p style="margin-top:1em">To try it on one machine without a cluster, the Locally recipe in <a href="https://github.com/arugula-salad/loam/blob/main/docs/E2B.md#conformance">docs/E2B.md</a> runs the nodelet in a container with <code>/dev/kvm</code> and loam-api with <code>--database-url memory</code>. That is a development setup, and the database goes away with the process.</p>
+  </div>
+</section>
+
+<section class="row" id="status" aria-labelledby="status-h">
+  <div class="rail" aria-hidden="true">Status</div>
+  <div class="content">
+    <h2 id="status-h">How it was built</h2>
+    <p>The first commit was on 2026-10-11. loam has run one deployment since, a three-node home k3s cluster. It runs 17 browser games, a CI runner, a Signal agent and an E2B endpoint friends use. It was written mostly by Claude Code, working from Jake Gaylor's design and under his review. It is about 55k lines of Go, 18.5k of them tests. The snapshot store is about 12k lines copied and trimmed from <a href="https://github.com/e2b-dev/infra">e2b-dev/infra</a>, Apache-2.0, with upstream Firecracker 1.17 in place of E2B's fork.</p>
+    <p>The open problems. loam-api is a single replica, so a restart briefly interrupts the API and the sandboxes' URLs. VMs share their nodelet's cgroup. It is x86_64 only. And the E2B gaps above.</p>
+  </div>
+</section>
+
+<section class="row" id="contribute" aria-labelledby="contribute-h">
+  <div class="rail" aria-hidden="true">Contribute</div>
+  <div class="content">
+    <h2 id="contribute-h">What would help</h2>
+    <p>Install reports from clusters other than this one would help most, from Talos, kubeadm, a Hetzner or OVH bare-metal node, or nested virtualization on a cloud instance. After that, per-VM cgroups and the E2B gaps.</p>
+    <p>Bugs get fixed with a write-up of the cause. A sandbox moved to another node had no network for 30 seconds. Each node's bridge had a random MAC and the guest's ARP cache still pointed at the old gateway, so the bridge now has a fixed MAC everywhere. Headless Chrome could not get through the egress filter. Chrome sends ECH as GREASE on every connection and the proxy refused ECH, so it now judges by the outer name.</p>
+    <p><a href="https://github.com/arugula-salad/loam/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> has the setup. Report vulnerabilities privately as <a href="https://github.com/arugula-salad/loam/blob/main/SECURITY.md">SECURITY.md</a> describes.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <span>loam. <a href="https://github.com/arugula-salad/loam/blob/main/LICENSE">Apache-2.0</a>. Snapshot store derived from <a href="https://github.com/e2b-dev/infra">e2b-dev/infra</a>, see <a href="https://github.com/arugula-salad/loam/blob/main/NOTICE">NOTICE</a>.</span>
+  <span>Built by <a href="https://jakegaylor.com">Jake Gaylor</a> on a three-node home cluster.</span>
+</footer>
+
 </div>
 </body>
 </html>
