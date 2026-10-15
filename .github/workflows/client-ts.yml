@@ -1,7 +1,9 @@
 # Builds and tests the TypeScript client (clients/ts) on pull requests that touch it, and on a
-# `ts-v<version>` tag publishes it as @arugula-salad/loam to npmjs.com through npm trusted publishing (GitHub OIDC, so no
-# npm token is stored anywhere; the package's trusted publisher on npmjs.com names this workflow),
-# and attaches its one-file build, loam.mjs, to a GitHub release of the tag for callers that vendor
+# `ts-v<version>` tag stages it as @arugula-salad/loam on npmjs.com through npm trusted publishing
+# (GitHub OIDC, so no npm token is stored anywhere, and the package's trusted publisher on npmjs.com
+# names this workflow and may only stage). A maintainer then approves the staged version with 2FA, on
+# npmjs.com or with `npm stage list @arugula-salad/loam` and `npm stage approve <stage-id>`. The tag
+# also gets the one-file build, loam.mjs, to a GitHub release of the tag for callers that vendor
 # a file instead of installing a package (clients/ts/README.md, "Install").
 #
 # The tag must match clients/ts/package.json's version: bump it in a PR, merge, then tag main:
@@ -58,8 +60,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # Trusted publishing needs npm 11.5.1 or later.
-      - run: npm install -g npm@^11.5.1
+      # Staged publishing through a trusted publisher needs npm 11.17 or later.
+      - run: npm install -g npm@^11.17.0
       - name: The tag matches the version
         run: |
           want="ts-v$(node -p 'require("./package.json").version')"
@@ -69,13 +71,13 @@ jobs:
       - run: npm run build
       # A version already on npm (0.1.0 went up by hand, since npm only lets a trusted publisher be set
       # on a package that exists) is skipped, and the tag still gets its release below.
-      - name: Publish to npm
+      - name: Stage on npm
         run: |
           v="$(node -p 'require("./package.json").version')"
           if npm view "@arugula-salad/loam@$v" version >/dev/null 2>&1; then
             echo "@arugula-salad/loam@$v is already on npm"
           else
-            npm publish --provenance --access public
+            npm stage publish . --provenance --access public
           fi
       - name: Release with loam.mjs
         env:
