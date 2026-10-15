@@ -1,0 +1,99 @@
+# Who talks to whom in `loam`:
+#
+#   your ingress ──► loam-api ──► Postgres (TCP 5432, wherever it is)
+#                      ▲   │
+#        host channel  │   ▼ node protocol
+#                   loam-nodelet ──► the internet (its own pulls, the snapshot store, and every
+#                                    VM's traffic, NATed out of the pod)
+#
+# The nodelet's egress is the VMs' egress: they are behind its pod IP. The nodelet's nftables
+# already drop VM traffic to private, link-local, CGNAT and multicast ranges (docs/NODE.md,
+# "Inside the nodelet"); this is the second layer, which holds even if the nodelet is wrong.
+#
+# A snapshot store inside the cluster or on a private address is outside "the internet" below:
+# add an egress rule for it in your overlay (deploy/examples/basic has one).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loam-nodelet
+spec:
+  podSelector:
+    matchLabels:
+      app: loam-nodelet
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # The node protocol, from loam-api only. (The kubelet's probes come from the node itself.)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: loam-api
+      ports:
+        - {protocol: TCP, port: 7070}
+  egress:
+    # Cluster DNS: the nodelet resolves loam-api, the registry and the store. The VMs' own
+    # forwarder asks public resolvers, which the internet rule below covers.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # The guests' host channel (docs/NODE.md), forwarded to loam-api's /internal/guest/.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: loam-api
+      ports:
+        - {protocol: TCP, port: 8080}
+    # Public addresses only: not the API server, Postgres, the nodes or anything else private.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10     # CGNAT, and tailnets
+              - 169.254.0.0/16    # link-local, cloud metadata included
+              - 127.0.0.0/8
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loam-api
+spec:
+  podSelector:
+    matchLabels:
+      app: loam-api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # The API, the sandboxes' URLs and the E2B adapter, from whatever your ingress is: loam-api
+    # checks a key on everything but the public docs, the identity issuer's documents and public
+    # ports. Narrow `from` to your ingress controller's pods or nodes if you can.
+    - ports:
+        - {protocol: TCP, port: 8080}
+    # The metrics port (9090) is admitted from nothing: add your Prometheus in an overlay.
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Postgres, wherever LOAM_DATABASE_URL points.
+    - ports:
+        - {protocol: TCP, port: 5432}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: loam-nodelet
+      ports:
+        - {protocol: TCP, port: 7070}

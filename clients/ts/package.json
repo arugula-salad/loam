@@ -1,0 +1,42 @@
+{
+  "name": "@arugula-salad/loam",
+  "version": "0.1.0",
+  "description": "TypeScript client for loam's public API (docs/API.md): sandboxes, exec, files, ports, services, checkpoints, events, secrets.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arugula-salad/loam.git",
+    "directory": "clients/ts"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./loam.mjs": "./dist/loam.mjs"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json && node scripts/bundle.mjs",
+    "test": "npm run build && rm -rf build && tsc -p tsconfig.test.json && node --test build/test/*.test.js",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}

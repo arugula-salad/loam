@@ -1,0 +1,9 @@
+# The bucket loam keeps snapshots in: s3://<bucket>?endpoint=<url>&s3ForcePathStyle=true&region=<region>.
+# Here a MinIO in the cluster; for AWS S3, drop endpoint and s3ForcePathStyle and give the
+# bucket's region. The key is the Secret loam-store.
+- op: test
+  path: /spec/template/spec/containers/0/env/3/name
+  value: LOAM_STORE_URL
+- op: replace
+  path: /spec/template/spec/containers/0/env/3/value
+  value: s3://loam-snapshots?endpoint=http://minio.minio.svc.cluster.local:9000&s3ForcePathStyle=true&region=us-east-1

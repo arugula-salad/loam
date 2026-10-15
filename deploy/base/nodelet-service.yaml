@@ -1,0 +1,34 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: loam-nodelet
+# One pod holds every awake sandbox on its node, so losing it loses all of them at once. Above the
+# default (0): under memory pressure the kubelet evicts other pods first, and a nodelet that has
+# to be rescheduled onto a full node may preempt lower-priority pods to get back. Below the system
+# classes, which keep the node itself running.
+value: 1000000
+preemptionPolicy: PreemptLowerPriority
+globalDefault: false
+description: loam's nodelets, which hold every awake sandbox on their node.
+---
+# Headless: loam-api resolves it to every ready nodelet and asks each for its node's name
+# (docs/NODE.md, "Reaching a nodelet"). No cluster IP to balance across nodes: a request is for
+# one node's nodelet, never any. publishNotReadyAddresses keeps a terminating nodelet in DNS while
+# it drains: loam-api has to reach it then, to record the pauses it makes on its way out (vm events,
+# then GET /v1/vms/{id}); without it the pod leaves DNS at SIGTERM and its sandboxes stay "running"
+# on a node that is gone until it returns. A nodelet that is down is simply left out by
+# loam-api (it doesn't answer /v1/node). Every nodelet DaemonSet's pods carry app: loam-nodelet,
+# so sized copies are under this Service too.
+apiVersion: v1
+kind: Service
+metadata:
+  name: loam-nodelet
+  labels:
+    app: loam-nodelet
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: loam-nodelet
+  ports:
+    - {name: node, port: 7070, targetPort: node}

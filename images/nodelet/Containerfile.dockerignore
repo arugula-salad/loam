@@ -1,0 +1,6 @@
+# The build context is the repository root; the image needs the Go sources and
+# the initramfs under dist/.
+.git
+bin
+*.ext4
+*.test

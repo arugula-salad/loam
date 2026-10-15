@@ -1,0 +1,76 @@
+# Builds and tests the TypeScript client (clients/ts) on pull requests that touch it, and on a
+# `ts-v<version>` tag publishes it as @arugula-salad/loam to npmjs.com (with provenance, token in the NPM_TOKEN secret),
+# and attaches its one-file build, loam.mjs, to a GitHub release of the tag for callers that vendor
+# a file instead of installing a package (clients/ts/README.md, "Install").
+#
+# The tag must match clients/ts/package.json's version: bump it in a PR, merge, then tag main:
+#   git tag ts-v0.1.0 && git push origin ts-v0.1.0
+#
+# Pull requests run only the tests, with read-only permissions and no secrets.
+name: client-ts
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "clients/ts/**"
+      - ".github/workflows/client-ts.yml"
+  push:
+    branches: [main]
+    paths:
+      - "clients/ts/**"
+      - ".github/workflows/client-ts.yml"
+    tags:
+      - "ts-v*"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: clients/ts
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 20 is the oldest the package supports.
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+
+  publish:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/ts-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: The tag matches the version
+        run: |
+          want="ts-v$(node -p 'require("./package.json").version')"
+          [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME, package.json says $want"; exit 1; }
+      - run: npm ci
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Release with loam.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${GITHUB_REF_NAME#ts-v}"
+          gh release create "$GITHUB_REF_NAME" dist/loam.mjs --repo "$GITHUB_REPOSITORY" \
+            --title "@arugula-salad/loam $v" \
+            --notes "TypeScript client, clients/ts at ${GITHUB_SHA::7}. npm: @arugula-salad/loam@$v on npmjs.com. loam.mjs is the one-file build to vendor."

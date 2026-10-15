@@ -1,0 +1,15 @@
+# A Kustomize component that adds the e2b-fountain template (images/e2b-fountain: loam-e2b with
+# another sandbox layout, an example of a custom E2B template) to the base's: templates.json here
+# is the base's two templates and that one, replacing the base's file. Not part of the generic
+# install; an overlay opts in with `components: [<path to here>]` and, to offer it through the E2B
+# adapter, --e2b-templates=<name>=e2b-fountain[:user] on loam-api.
+#
+# Every digest here is pinned by .github/workflows/images.yml (scripts/pin-images.sh) together
+# with the base's, so the two files never disagree on base and e2b. Never edit them by hand.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: loam-templates
+    behavior: replace
+    files:
+      - templates.json

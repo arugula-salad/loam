@@ -1,0 +1,13 @@
+# By position in the base's args; each `test` fails the build if the base has moved one.
+- op: test
+  path: /spec/template/spec/containers/0/args/2
+  value: --domain=loam.example.com
+- op: replace
+  path: /spec/template/spec/containers/0/args/2
+  value: --domain=loam.example.com
+- op: test
+  path: /spec/template/spec/containers/0/args/8
+  value: --e2b-domain=e2b.loam.example.com
+- op: replace
+  path: /spec/template/spec/containers/0/args/8
+  value: --e2b-domain=e2b.loam.example.com

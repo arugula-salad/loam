@@ -1,0 +1,82 @@
+# The root filesystem of an E2B sandbox (the "e2b" template, docs/E2B.md): loam's guest image
+# reshaped to look like E2B's `base` template (docker.io/e2bdev/base plus what E2B's template
+# build adds: user `user` with passwordless sudo, a world-writable /usr/local and /code), with
+# E2B's own envd daemon, which loam-agent starts at every boot as a service whose definition
+# the image ships (envd.json). As in images/guest there is no init system in here: loam-agent,
+# booted from the initramfs, is PID 1.
+#
+# Built by .github/workflows/images.yml as ghcr.io/arugula-salad/loam-e2b, by hand with
+#   docker build images/e2b
+
+# envd, built from a pinned commit of github.com/e2b-dev/infra (packages/envd, Apache-2.0)
+# into a static binary. To move the pin: change
+# ENVD_COMMIT and ENVD_VERSION together (the build refuses a binary that reports another
+# version), and EnvdVersion in internal/e2b. The version is what the adapter reports to the
+# SDKs as envdVersion, and the SDKs gate features on it (0.6.4 unlocks all of them as of SDK
+# 2.52.0).
+FROM docker.io/library/golang:1.27.1 AS envd
+ARG ENVD_COMMIT=92197909dce5a1bef33e764ae4af76f0732fd7a8
+ARG ENVD_VERSION=0.9.0
+WORKDIR /src
+RUN git init -q . && git remote add origin https://github.com/e2b-dev/infra.git \
+    && git fetch -q --depth 1 origin "$ENVD_COMMIT" && git -c advice.detachedHead=false checkout -q FETCH_HEAD
+# The license is what makes shipping this binary in our image fine; check it is still the one we read.
+RUN head -3 LICENSE | grep -q 'Apache License' && head -3 LICENSE | grep -q 'Version 2.0' \
+    || { echo "e2b-dev/infra at $ENVD_COMMIT is no longer Apache-2.0 licensed; not building" >&2; exit 1; }
+# Static: the guest image has a libc, but the binary must not depend on which one.
+# -X main.commitSHA is how upstream's Makefile stamps provenance (envd -commit).
+RUN cd packages/envd && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+      -ldflags "-s -w -buildid= -X=main.commitSHA=$(echo "$ENVD_COMMIT" | cut -c1-7)" -o /out/envd . \
+    && got=$(/out/envd -version) \
+    && { [ "$got" = "$ENVD_VERSION" ] || { echo "envd at $ENVD_COMMIT reports $got, expected $ENVD_VERSION" >&2; exit 1; }; }
+
+FROM docker.io/library/ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+# images/guest's set, plus what e2bdev/base has that it lacks (gh, socat, which envd's port
+# forwarder runs) and python-is-python3 (`python` exists there).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash-completion build-essential ca-certificates curl dnsutils file gh git gnupg \
+      iproute2 iputils-ping jq less locales lsof man-db nano netcat-openbsd openssh-client \
+      procps psmisc python-is-python3 python3 python3-dev python3-pip python3-venv ripgrep \
+      rsync socat sqlite3 sudo tmux tree unzip vim-tiny wget xz-utils zip \
+    && rm -rf /var/lib/apt/lists/* \
+    # e2bdev/base's python is python.org's, where `pip install` just works; Ubuntu's
+    # refuses (PEP 668), which would break the most common first command in a sandbox.
+    && rm -f /usr/lib/python3*/EXTERNALLY-MANAGED
+
+# e2bdev/base ships Node 20, which is past end of life; 22 is the oldest supported LTS. As in
+# images/guest, /usr/local is made world-writable in this layer, since a later chmod -R would
+# copy Node.
+ARG NODE_VERSION=22.23.3
+RUN set -eu; cd /tmp; f="node-v$NODE_VERSION-linux-x64.tar.xz"; \
+    curl -fsSLO "https://nodejs.org/dist/v$NODE_VERSION/$f"; \
+    curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt" | grep " $f\$" | sha256sum -c -; \
+    tar -xJf "$f" -C /usr/local --strip-components=1 --no-same-owner \
+      --exclude CHANGELOG.md --exclude LICENSE --exclude README.md; \
+    rm "$f"; corepack enable; \
+    chmod -R a+rwX /usr/local; \
+    node --version; npm --version
+
+# E2B's default user. ubuntu:24.04 ships an `ubuntu` account at uid 1000; E2B sandboxes have
+# `user` there, and envd runs commands as it (the adapter's /init names it). loam-agent's own
+# exec sessions and services (loam's API, which reaches these sandboxes too) default to
+# `loam`, so it exists as well, at the next uid (docs/AGENT.md, "Users and processes").
+RUN userdel -r ubuntu 2>/dev/null; \
+    useradd -m -u 1000 -s /bin/bash -G sudo user && passwd -d user \
+    && echo 'user ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/user \
+    && useradd -m -u 1001 -s /bin/bash loam \
+    && echo 'loam ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/loam \
+    && chmod 0440 /etc/sudoers.d/user /etc/sudoers.d/loam \
+    && mkdir -p /code && chmod 777 /code \
+    && echo e2b > /etc/hostname \
+    && install -d -o loam -g loam -m 755 /home/loam/.local /home/loam/.local/bin /home/loam/.local/share /home/loam/.local/state \
+    && install -d -o user -g user -m 755 /home/user/.local /home/user/.local/bin
+
+# envd, where E2B puts it, started at every boot by loam-agent: a service definition on the
+# disk is a service like one made through the API (docs/AGENT.md, "The guest disk"), so it
+# starts at the first wake of every boot, restarts on a crash, and is part of the memory
+# snapshot through a pause.
+COPY --from=envd /out/envd /usr/bin/envd
+RUN install -d -m 755 /var/lib/loam /var/lib/loam/services /var/lib/loam/hooks/presuspend.d
+COPY --chmod=0644 envd.json /var/lib/loam/services/envd.json

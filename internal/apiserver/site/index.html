@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loam</title>
+<meta name="description" content="Firecracker sandboxes on Kubernetes. Idle sandboxes sleep as snapshots in object storage and wake on any node. Speaks E2B's API, so the official SDKs work unchanged.">
+<meta property="og:title" content="loam">
+<meta property="og:description" content="Firecracker sandboxes on Kubernetes, with E2B's API on top.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237a5230'/%3E%3Cpath d='M7 22h18M9 17h14M12 12h8' stroke='%23f3e7d6' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #faf6f0; --surface: #f1e9dd; --ink: #231c15; --muted: #6b5d4f; --line: #ddd0bf;
+  --accent: #8a5a2b; --accent-ink: #fff8ef; --code-bg: #231c15; --code-ink: #f3e7d6; --code-dim: #a8957f; --ok: #3f6b3a;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16120e; --surface: #201a14; --ink: #efe5d8; --muted: #a8977f; --line: #3a3026;
+    --accent: #d39a5d; --accent-ink: #1a130c; --code-bg: #0f0c09; --code-ink: #efe5d8; --code-dim: #8c7b66; --ok: #8fbf7f;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16120e; --surface: #201a14; --ink: #efe5d8; --muted: #a8977f; --line: #3a3026;
+  --accent: #d39a5d; --accent-ink: #1a130c; --code-bg: #0f0c09; --code-ink: #efe5d8; --code-dim: #8c7b66; --ok: #8fbf7f;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 var(--sans); }
+a { color: var(--accent); text-underline-offset: 3px; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+header.top { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+.brand { font: 700 20px var(--mono); color: var(--ink); text-decoration: none; letter-spacing: -0.5px; }
+.brand span { color: var(--accent); }
+nav a { margin-left: 18px; color: var(--muted); text-decoration: none; font-size: 15px; }
+nav a:hover { color: var(--ink); }
+.hero { padding: 48px 0 32px; display: grid; gap: 36px; grid-template-columns: 1.05fr 1fr; align-items: center; }
+h1 { font-size: clamp(32px, 5vw, 50px); line-height: 1.08; letter-spacing: -1.2px; margin: 0 0 18px; }
+.lede { font-size: 19px; color: var(--muted); margin: 0 0 26px; max-width: 34em; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; }
+.btn { display: inline-block; padding: 11px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 16px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.ghost { border: 1px solid var(--line); color: var(--ink); }
+pre { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 20px 22px; overflow-x: auto; font: 14px/1.65 var(--mono); }
+pre .c { color: var(--code-dim); }
+pre .k { color: #e0a96d; }
+pre .s { color: #a9c98f; }
+.caption { font-size: 14px; color: var(--muted); margin-top: 10px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 28px 0 8px; }
+.stat { background: var(--surface); padding: 20px 18px; }
+.stat b { display: block; font: 700 28px var(--mono); letter-spacing: -1px; }
+.stat span { color: var(--muted); font-size: 14px; line-height: 1.4; display: block; margin-top: 4px; }
+.note { font-size: 14px; color: var(--muted); }
+section { padding: 44px 0; border-top: 1px solid var(--line); }
+h2 { font-size: 28px; letter-spacing: -0.5px; margin: 0 0 14px; }
+h3 { font-size: 18px; margin: 0 0 6px; }
+.cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 22px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+.card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+.diagram { margin-top: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+.diagram svg { width: 100%; height: auto; display: block; }
+.diagram text { font-family: var(--sans); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+ul.check, ul.gap { list-style: none; padding: 0; margin: 12px 0 0; }
+ul.check li, ul.gap li { padding: 6px 0 6px 26px; position: relative; font-size: 15.5px; }
+ul.check li::before { content: "\2713"; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
+ul.gap li::before { content: "\2014"; position: absolute; left: 0; color: var(--muted); }
+code { font: 0.9em var(--mono); background: var(--surface); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; }
+footer { padding: 36px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+@media (max-width: 820px) {
+  .hero, .two { grid-template-columns: 1fr; }
+  .cols { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  nav a:not(.gh) { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/">loam<span>.</span></a>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#e2b">E2B</a>
+      <a href="#run">Run it</a>
+      <a href="https://jakegaylor.com/blog/posts/e2b-on-kubernetes/">Blog post</a>
+      <a class="gh" href="https://github.com/arugula-salad/loam">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Firecracker sandboxes on Kubernetes.</h1>
+      <p class="lede">Every sandbox is a microVM that runs only while it's awake. Idle ones sleep as snapshots in object storage and wake on any node. loam speaks E2B's API, so the official SDKs work against your own cluster unchanged.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/arugula-salad/loam">Get it on GitHub</a>
+        <a class="btn ghost" href="https://jakegaylor.com/blog/posts/e2b-on-kubernetes/">Read how it's built</a>
+      </div>
+    </div>
+    <div>
+<pre><span class="c"># point the E2B SDK at your loam</span>
+<span class="k">export</span> E2B_DOMAIN=<span class="s">e2b.loam.example.com</span>
+<span class="k">export</span> E2B_API_KEY=<span class="s">loam_...</span>
+
+<span class="k">from</span> e2b <span class="k">import</span> Sandbox
+
+sbx = Sandbox.create()
+r = sbx.commands.run(<span class="s">"uname -a"</span>)
+print(r.stdout)   <span class="c"># a Firecracker guest</span>
+sbx.pause()       <span class="c"># memory + disk to S3</span></pre>
+      <p class="caption">Same code you'd run against hosted E2B. Only the domain and key change.</p>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>29 ms</b><span>resume a paused sandbox on the node holding its snapshot</span></div>
+    <div class="stat"><b>0.42 s</b><span>wake on a different node, memory paged in lazily</span></div>
+    <div class="stat"><b>28 ms</b><span>fork a running sandbox</span></div>
+    <div class="stat"><b>26 / 26</b><span>E2B Python and JS SDK conformance steps passing</span></div>
+  </div>
+  <p class="note">Measured on a three-node home cluster with a 2 GiB base template. Methodology in the repo's test write-ups.</p>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <p>A sandbox is a record in Postgres. Each KVM node runs one warm worker pod, the nodelet, which boots Firecracker VMs inside itself, owns their network, and pauses them to an S3 bucket when they go idle. Waking a sandbox never waits on the Kubernetes scheduler or etcd.</p>
+    <div class="diagram" role="img" aria-label="Clients call loam-api, which records sandboxes in Postgres and sends work to nodelet pods on each node. Nodelets run Firecracker microVMs and store snapshots in an S3 bucket.">
+      <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
+        </defs>
+        <g font-size="15" fill="var(--ink)">
+          <rect x="10" y="40" width="160" height="70" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="90" y="70" text-anchor="middle" font-weight="700">Clients</text>
+          <text x="90" y="92" text-anchor="middle" font-size="13" fill="var(--muted)">E2B SDK · CLI · Go · TS</text>
+
+          <rect x="240" y="40" width="170" height="70" rx="10" fill="var(--bg)" stroke="var(--accent)"/>
+          <text x="325" y="70" text-anchor="middle" font-weight="700">loam-api</text>
+          <text x="325" y="92" text-anchor="middle" font-size="13" fill="var(--muted)">placement · lifecycle</text>
+
+          <rect x="240" y="200" width="170" height="60" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="325" y="235" text-anchor="middle" font-weight="700">Postgres</text>
+
+          <rect x="480" y="20" width="250" height="110" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="500" y="44" font-weight="700">nodelet pod · node A</text>
+          <rect x="500" y="60" width="62" height="50" rx="7" fill="var(--surface)" stroke="var(--accent)"/><text x="531" y="90" text-anchor="middle" font-size="13">VM</text>
+          <rect x="574" y="60" width="62" height="50" rx="7" fill="var(--surface)" stroke="var(--accent)"/><text x="605" y="90" text-anchor="middle" font-size="13">VM</text>
+          <rect x="648" y="60" width="62" height="50" rx="7" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="679" y="90" text-anchor="middle" font-size="12" fill="var(--muted)">room</text>
+
+          <rect x="480" y="160" width="250" height="110" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="500" y="184" font-weight="700">nodelet pod · node B</text>
+          <rect x="500" y="200" width="62" height="50" rx="7" fill="var(--surface)" stroke="var(--accent)"/><text x="531" y="230" text-anchor="middle" font-size="13">VM</text>
+          <rect x="574" y="200" width="62" height="50" rx="7" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="605" y="230" text-anchor="middle" font-size="12" fill="var(--muted)">room</text>
+
+          <rect x="790" y="110" width="100" height="80" rx="10" fill="var(--bg)" stroke="var(--line)"/>
+          <text x="840" y="145" text-anchor="middle" font-weight="700">S3</text>
+          <text x="840" y="166" text-anchor="middle" font-size="12" fill="var(--muted)">snapshots</text>
+        </g>
+        <g stroke="var(--muted)" stroke-width="1.6" fill="none" marker-end="url(#a)">
+          <path d="M170 75H236"/>
+          <path d="M325 110V196"/>
+          <path d="M410 70H476"/>
+          <path d="M410 90C445 90 445 215 476 215"/>
+          <path d="M730 75C765 75 765 135 786 140"/>
+          <path d="M730 215C765 215 765 165 786 160"/>
+        </g>
+        <text x="770" y="70" font-size="12" fill="var(--muted)">pause</text>
+        <text x="772" y="240" font-size="12" fill="var(--muted)">wake</text>
+      </svg>
+    </div>
+    <div class="cols">
+      <div class="card"><h3>Every state is a snapshot</h3><p>Pause, checkpoint and fork all write the same layered format, dirty blocks in 2 MiB zstd frames. A paused sandbox costs its diff in the bucket and nothing on the nodes.</p></div>
+      <div class="card"><h3>Wake anywhere</h3><p>Wake prefers the node that already has the snapshot and falls back to any node with room. Drain a node and its VMs pause, upload and come back elsewhere with their processes intact.</p></div>
+      <div class="card"><h3>The network is the boundary</h3><p>Egress by hostname, checked at DNS and SNI. Secrets swapped in on the wire so they never enter the guest or its snapshot. A per-sandbox OIDC token for identity.</p></div>
+    </div>
+  </section>
+
+  <section id="e2b">
+    <h2>E2B's API, on your cluster</h2>
+    <p>The adapter runs E2B's own envd inside the guest, so commands, files, streaming and signed file URLs behave the way the SDKs expect. Every E2B sandbox is also an ordinary loam sandbox, visible to the loam CLI and API.</p>
+    <div class="two">
+      <div>
+        <h3>Works today</h3>
+        <ul class="check">
+          <li>Create, get, list, kill, set timeout</li>
+          <li>Commands with streaming, background processes, stdin and PTY</li>
+          <li>Files, plus signed upload and download URLs</li>
+          <li>Pause, resume, connect and auto-resume</li>
+          <li>Sandbox ports at <code>&lt;port&gt;-&lt;id&gt;.&lt;domain&gt;</code></li>
+          <li>Internet access toggles and hostname egress rules</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Not yet</h3>
+        <ul class="gap">
+          <li>Template build API (loam builds templates from OCI images)</li>
+          <li>E2B's snapshot and fork endpoints (loam's own API has both)</li>
+          <li>Volumes, sandbox logs and metrics history</li>
+          <li>CIDR and IP egress rules</li>
+          <li>Team and API key management through E2B's API</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="run">
+    <h2>Run it</h2>
+    <div class="two">
+      <div>
+        <p>loam needs x86 nodes with KVM, so bare metal or a cloud instance with nested virtualization, on Linux 6.1 or newer. Beyond that it asks for a device plugin that exposes <code>/dev/kvm</code>, <code>/dev/net/tun</code> and <code>/dev/userfaultfd</code>, an XFS directory with reflinks for each node's cache, an S3-compatible bucket and Postgres.</p>
+        <p>The nodelet runs unprivileged with a short list of added capabilities. The install is a kustomize base with an example overlay; <a href="https://github.com/arugula-salad/loam/blob/main/docs/INSTALL.md">docs/INSTALL.md</a> walks through it, from the device plugin to your first API key.</p>
+      </div>
+<pre><span class="c"># a kustomize base, and an overlay of your own</span>
+git clone https://github.com/arugula-salad/loam
+cd loam/deploy/examples/basic
+<span class="c"># set your domain, S3 bucket, Postgres and secrets</span>
+kubectl apply -k .
+
+<span class="c"># the native CLI</span>
+loam login --url https://api.loam.example.com
+loam create dev --template base
+loam exec dev -- python3 -V
+loam pause dev</pre>
+    </div>
+    <p class="note">loam is young. The API server runs as one replica, and VMs share their nodelet's cgroup. Bug reports welcome.</p>
+  </section>
+
+  <footer>
+    <span>loam · Apache-2.0 · snapshot store derived from <a href="https://github.com/e2b-dev/infra">e2b-dev/infra</a></span>
+    <span>Built by <a href="https://jakegaylor.com">Jake Gaylor</a> on a three-node home cluster</span>
+  </footer>
+</div>
+</body>
+</html>

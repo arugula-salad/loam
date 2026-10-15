@@ -1,0 +1,7 @@
+# Its own namespace: the nodelets run anyone's code in their VMs and carry /dev/kvm and NET_ADMIN,
+# and the NetworkPolicies here are written against this namespace. The base's names
+# (loam-nodelet.loam.svc.cluster.local, loam-api.loam.svc.cluster.local) assume it is `loam`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loam

@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+#
+# The loam-nodelet image: the nodelet, Firecracker, the guest kernel and the
+# agent's initramfs at fixed paths (the defaults of loam-nodelet's --firecracker,
+# --kernel and --initramfs), and the tools it runs: iproute2 and nftables for
+# the VMs' network in the pod's namespace, e2fsprogs (mke2fs >= 1.47.1, which
+# reads tar through libarchive, loaded at run time) for template disks.
+#
+# Build from the repository root:
+#
+#   scripts/build-initramfs.sh          # loam-agent as /init: dist/initramfs.cpio.gz
+#   docker build -f images/nodelet/Containerfile -t loam-nodelet .
+#
+# The initramfs is a build input, not built here: INITRAMFS names it, relative
+# to the build context (default dist/initramfs.cpio.gz). The kernel reads a
+# compressed or an uncompressed cpio alike, whatever the file is called.
+# Updating the agent is rebuilding this image and rolling the DaemonSet; a
+# sandbox picks the new agent up at its next fresh boot.
+
+FROM golang:1.27.1-trixie AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY pkg ./pkg
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/loam-nodelet ./cmd/loam-nodelet
+
+FROM debian:trixie-slim AS fetch
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+# Firecracker from its GitHub release; the checksum is the release's own
+# firecracker-<version>-x86_64.tgz.sha256.txt.
+ARG FC_VERSION=v1.17.0
+ARG FC_SHA256=06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558
+# The guest kernel: Firecracker's CI kernel, published with its CI artifacts
+# rather than its releases.
+ARG KERNEL_URL=https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/x86_64/vmlinux-6.1.155
+ARG KERNEL_SHA256=e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2
+RUN mkdir /out && cd /tmp \
+    && curl -fsSLo fc.tgz "https://github.com/firecracker-microvm/firecracker/releases/download/${FC_VERSION}/firecracker-${FC_VERSION}-x86_64.tgz" \
+    && echo "${FC_SHA256}  fc.tgz" | sha256sum -c - \
+    && tar -xzf fc.tgz \
+    && install -m 0755 "release-${FC_VERSION}-x86_64/firecracker-${FC_VERSION}-x86_64" /out/firecracker \
+    && curl -fsSLo /out/vmlinux "${KERNEL_URL}" \
+    && echo "${KERNEL_SHA256}  /out/vmlinux" | sha256sum -c -
+
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables e2fsprogs libarchive13t64 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=fetch /out/firecracker /usr/local/bin/firecracker
+COPY --from=fetch /out/vmlinux /usr/share/loam/vmlinux
+ARG INITRAMFS=dist/initramfs.cpio.gz
+COPY ${INITRAMFS} /usr/share/loam/initramfs.cpio.gz
+COPY --from=build /out/loam-nodelet /usr/local/bin/loam-nodelet
+ENTRYPOINT ["/usr/local/bin/loam-nodelet"]

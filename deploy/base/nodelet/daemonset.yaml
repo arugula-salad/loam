@@ -1,0 +1,181 @@
+# loam-nodelet: one per node labelled loam.arugula.io/node=true. It runs that node's Firecracker
+# VMs inside its own pod: their taps on the bridge loam0 in the pod's network namespace, NATed out
+# of the pod, so this pod's NetworkPolicy is the VMs' network boundary too (networkpolicy.yaml);
+# their disks, snapshots, the image cache and the snapshot store's chunk cache under the hostPath
+# below. That directory must be XFS with reflinks on every node, or the nodelet refuses it
+# (docs/INSTALL.md says how to make one, an XFS image file on another filesystem included).
+#
+# Every snapshot also goes to the store, an S3 bucket (docs/NODE.md, "Phase 2: the snapshot
+# store"), at LOAM_STORE_URL with the key in the Secret loam-store.
+#
+# Not privileged. What it gets instead, and why:
+#   - /dev/kvm and /dev/net/tun as the extended resources loam.arugula.io/kvm and
+#     loam.arugula.io/tun, from a device plugin (docs/INSTALL.md has one for squat's
+#     generic-device-plugin). A hostPath mount of /dev/kvm isn't enough: the container's device
+#     cgroup would still refuse to open it, and only privileged lifts that. The plugin has the
+#     kubelet add exactly these.
+#   - /dev/userfaultfd as loam.arugula.io/userfaultfd, for restoring a snapshot's memory lazily:
+#     Firecracker registers guest memory with a userfaultfd whose faults come from the kernel
+#     (KVM), which the host's vm.unprivileged_userfaultfd=0 allows only with CAP_SYS_PTRACE. That
+#     capability isn't enough in a pod: containerd's RuntimeDefault seccomp profile has no rule
+#     for userfaultfd(2), so the syscall is EPERM whatever the capabilities. The device (Linux
+#     6.1 and later) is the kernel's other way in: open it, ioctl USERFAULTFD_IOC_NEW, both
+#     allowed by RuntimeDefault, no capability needed. Firecracker's userfaultfd crate tries the
+#     device first. So no CAP_SYS_PTRACE and no custom seccomp profile.
+#   - NET_ADMIN: the bridge, the taps, addresses, routes and nftables (the NAT and the drop rules
+#     for private ranges) in its own network namespace. Nothing here touches the node's.
+#   - NET_BIND_SERVICE: the VMs' DNS forwarder on 10.240.0.1:53.
+#   - CHOWN, DAC_OVERRIDE, FOWNER, FSETID, MKNOD, SETFCAP: flattening a template image into an
+#     ext4 root filesystem keeps the image's owners, modes, device nodes and file capabilities,
+#     and reads files that are mode 0000 (/etc/shadow). Root without these can't.
+#   Every other capability, including the rest of the container defaults, is dropped. It runs as
+#   root inside the pod: /dev/kvm and the taps are root's. No SYS_ADMIN, so no mounts and a
+#   read-only /sys/fs/cgroup: the VMs share the pod's cgroup and its memory limit below.
+#
+# Memory: --memory is what the nodelet hands to VMs (admission reserves each VM's full
+# memory_mib). Guest RAM is charged to this pod, so the request covers it plus the nodelet and
+# the image pulls, and the limit leaves room for Firecracker's own overhead, the UFFD handler
+# processes, the uploads' compression buffers and the page cache of disks and chunks
+# (reclaimable). --memory is set rather than left to its default, which is three quarters of the
+# host's RAM (/proc/meminfo isn't the pod's). A DaemonSet has one pod spec, so every node it runs
+# on gets the same size; nodes of other sizes take a second copy of this DaemonSet with its own
+# name, node label value and an extra selector label (docs/INSTALL.md, "Sizing").
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: loam-nodelet
+  labels:
+    app: loam-nodelet
+spec:
+  selector:
+    matchLabels:
+      app: loam-nodelet
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: loam-nodelet
+    spec:
+      nodeSelector:
+        loam.arugula.io/node: "true"
+      priorityClassName: loam-nodelet
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Time to pause (snapshot) the running VMs on SIGTERM, so a roll or a drain doesn't lose them.
+      terminationGracePeriodSeconds: 300
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: loam-nodelet
+          image: loam-nodelet
+          args:
+            - --listen=:7070
+            - --data=/var/lib/loam
+            # MiB the nodelet may hand to VMs (docs/NODE.md, "The node"). Keep the request and the
+            # limit below in step with it.
+            - --memory=16384
+            # Where the guests' host channel goes (docs/NODE.md, "The guest's host channel").
+            - --api-url=http://loam-api.loam.svc.cluster.local:8080
+            # Pausing the running VMs on SIGTERM must finish inside terminationGracePeriodSeconds (300).
+            - --drain-timeout=280s
+            # Signs brokered hosts' certificates (docs/NODE.md, "Phase 3"); a VM with secrets needs it.
+            - --broker-ca=/etc/loam/broker-ca
+          env:
+            # The node's name, which loam-api records against each sandbox.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: LOAM_NODE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: loam-node-token
+                  key: LOAM_NODE_TOKEN
+            # The registry credential for template images, if they need one: go-containerregistry's
+            # default keychain reads $DOCKER_CONFIG/config.json, and pulls anonymously without it.
+            - name: DOCKER_CONFIG
+              value: /etc/loam/registry
+            # The snapshot store: an S3 bucket, path-style unless your store serves virtual-host
+            # names, and the region it checks signatures against. A placeholder: set your own.
+            - name: LOAM_STORE_URL
+              value: s3://loam-snapshots?endpoint=https://s3.example.com&s3ForcePathStyle=true&region=us-east-1
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: loam-store
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loam-store
+                  key: AWS_SECRET_ACCESS_KEY
+          ports:
+            - name: node
+              containerPort: 7070
+          readinessProbe:
+            tcpSocket: {port: node}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: node}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "1"
+              memory: 17Gi
+              loam.arugula.io/kvm: "1"
+              loam.arugula.io/tun: "1"
+              loam.arugula.io/userfaultfd: "1"
+            limits:
+              memory: 20Gi
+              loam.arugula.io/kvm: "1"
+              loam.arugula.io/tun: "1"
+              loam.arugula.io/userfaultfd: "1"
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add:
+                - NET_ADMIN
+                - NET_BIND_SERVICE
+                - CHOWN
+                - DAC_OVERRIDE
+                - FOWNER
+                - FSETID
+                - MKNOD
+                - SETFCAP
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/loam}
+            - {name: registry, mountPath: /etc/loam/registry, readOnly: true}
+            - {name: broker-ca, mountPath: /etc/loam/broker-ca, readOnly: true}
+            - {name: run, mountPath: /run}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        # On the host: XFS with reflinks (docs/INSTALL.md). Also the store's chunk cache, evicted
+        # like the image cache (docs/NODE.md): no volume of its own.
+        - name: data
+          hostPath:
+            path: /var/lib/loam
+            type: DirectoryOrCreate
+        # A kubernetes.io/dockerconfigjson Secret for private template images; optional, since
+        # loam's own images are public.
+        - name: registry
+          secret:
+            secretName: loam-registry
+            optional: true
+            items:
+              - {key: .dockerconfigjson, path: config.json}
+        - name: broker-ca
+          secret:
+            secretName: loam-broker-ca
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

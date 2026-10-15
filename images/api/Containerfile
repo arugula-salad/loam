@@ -1,0 +1,18 @@
+# loam-api: the public API, placement and lifecycle (docs/ARCHITECTURE.md). Built from the repo
+# root, by .github/workflows/images.yml, or by hand:
+#   docker build -f images/api/Containerfile .
+# A static binary on distroless: no shell, no package manager, nothing to exec into but the API.
+FROM docker.io/library/golang:1.27.1 AS build
+WORKDIR /src
+# go.sum is optional: the module is standard library only until something needs a dependency.
+COPY go.mod go.sum* ./
+RUN go mod download
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/loam-api ./cmd/loam-api
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/loam-api /loam-api
+# distroless's nonroot, by number, so Kubernetes can check runAsNonRoot.
+USER 65532:65532
+ENTRYPOINT ["/loam-api"]

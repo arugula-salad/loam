@@ -1,0 +1,39 @@
+# loam's generic install (docs/INSTALL.md): loam-api, one nodelet per node labelled
+# loam.arugula.io/node=true, and the NetworkPolicies between them, in namespace `loam`. Nothing
+# here is tied to one cluster: no ingress, certificates, Postgres or secret store. An overlay adds
+# those and sets the placeholders; deploy/examples/basic is one.
+#
+# What it expects of the cluster:
+#   - nodes with the extended resources loam.arugula.io/kvm, loam.arugula.io/tun and
+#     loam.arugula.io/userfaultfd (a device plugin) and the label loam.arugula.io/node=true;
+#   - the Secrets loam-database, loam-admin-token, loam-node-token, loam-secret-key,
+#     loam-identity-key, loam-store and loam-broker-ca (deploy/examples/basic/secrets.example.yaml);
+#   - your domain in api.yaml's --domain and --e2b-domain, and your bucket in the nodelet's
+#     LOAM_STORE_URL.
+#
+# The image digests below, in nodelet/kustomization.yaml and in templates.json are pinned by
+# .github/workflows/images.yml (scripts/pin-images.sh) on every pull request that changes what
+# they're built from, with the source key in pinned-source. Never edit them by hand.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: loam
+resources:
+  - namespace.yaml
+  - api.yaml
+  - nodelet-service.yaml
+  - nodelet
+  - networkpolicy.yaml
+configMapGenerator:
+  # loam-api's --templates. A new guest digest is a new ConfigMap name, so pinning one rolls
+  # loam-api. An overlay replaces the file to offer other templates (behavior: replace).
+  - name: loam-templates
+    files:
+      - templates.json
+  # loam-api's --domains: the projects' URL domains (docs/API.md, "URL domains"). None in the base.
+  - name: loam-domains
+    files:
+      - domains.json
+images:
+  - name: loam-api
+    newName: ghcr.io/arugula-salad/loam-api
+    digest: sha256:5d708b3da3a3d1af3439ead5ebc0880171f9f3b74f91e917bab588fa352935f4

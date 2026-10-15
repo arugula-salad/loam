@@ -1,0 +1,12 @@
+# Build outputs: `make build` writes bin/, the initramfs and test images go to dist/.
+/bin/
+/dist/
+*.ext4
+*.test
+# Binaries built with a bare `go build ./cmd/<name>` at the root.
+/loam
+/loam-api
+/loam-nodelet
+/loam-agent
+# Node (clients/ts has its own .gitignore for its build output).
+node_modules/

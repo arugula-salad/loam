@@ -1,0 +1,15 @@
+# The nodelets reach the store at a private address, which the base's egress (public addresses
+# only) refuses. Admit exactly the store's pods and port. Without this an in-cluster store times
+# out; a store on the internet needs nothing.
+- op: add
+  path: /spec/egress/-
+  value:
+    to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: minio
+        podSelector:
+          matchLabels:
+            app: minio
+    ports:
+      - {protocol: TCP, port: 9000}

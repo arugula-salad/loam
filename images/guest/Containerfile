@@ -1,0 +1,45 @@
+# The root filesystem of a sandbox (the "base" template). Only a filesystem:
+# there is no init system in here. loam-agent, booted from the initramfs the
+# nodelet ships, is PID 1 and mounts this as the root; the image need not
+# contain the agent, and a disk restored from an old checkpoint gets the
+# agent of the nodelet that boots it.
+FROM docker.io/library/ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash-completion build-essential ca-certificates curl dnsutils file git gnupg \
+      iproute2 iputils-ping jq less locales lsof man-db nano netcat-openbsd openssh-client \
+      procps psmisc python3 python3-pip python3-venv ripgrep rsync sqlite3 sudo tmux tree \
+      unzip vim-tiny wget xz-utils zip \
+    && rm -rf /var/lib/apt/lists/*
+
+# ubuntu:24.04 ships an `ubuntu` account at uid 1000; commands run as `loam`
+# instead (docs/AGENT.md, "Users and processes").
+RUN userdel -r ubuntu 2>/dev/null; \
+    useradd -m -u 1000 -s /bin/bash loam \
+    && echo 'loam ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/loam && chmod 0440 /etc/sudoers.d/loam \
+    && echo loam > /etc/hostname
+
+# Node 24 for the agent runtimes that run in a sandbox. System node, not nvm:
+# exec sessions never source a profile. The arch comes from dpkg, so this
+# builds on arm64 too. /usr/local is made world-writable so `npm install -g`
+# works as loam without sudo; in this layer, since a later chmod -R would copy Node.
+ARG NODE_VERSION=24.21.0
+RUN set -eu; cd /tmp; \
+    case "$(dpkg --print-architecture)" in amd64) a=x64 ;; arm64) a=arm64 ;; *) echo "unsupported arch" >&2; exit 1 ;; esac; \
+    f="node-v$NODE_VERSION-linux-$a.tar.xz"; \
+    curl -fsSLO "https://nodejs.org/dist/v$NODE_VERSION/$f"; \
+    curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt" | grep " $f\$" | sha256sum -c -; \
+    tar -xJf "$f" -C /usr/local --strip-components=1 --no-same-owner \
+      --exclude CHANGELOG.md --exclude LICENSE --exclude README.md; \
+    rm "$f"; corepack enable; \
+    chmod -R a+rwX /usr/local; \
+    node --version; npm --version
+
+# ~/.local/bin is on every PATH the agent hands out. Created here as loam: a
+# root-owned ~/.local would make an install under it fail with EACCES.
+RUN install -d -o loam -g loam -m 755 /home/loam/.local /home/loam/.local/bin /home/loam/.local/share /home/loam/.local/state
+
+# Where the agent keeps service definitions, their logs and hooks: on the
+# disk, so they travel with checkpoints.
+RUN install -d -m 755 /var/lib/loam /var/lib/loam/services /var/lib/loam/hooks/presuspend.d

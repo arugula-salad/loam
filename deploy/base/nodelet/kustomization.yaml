@@ -1,0 +1,15 @@
+# The nodelet DaemonSet on its own, so an overlay can instantiate it again for nodes of another
+# size (docs/INSTALL.md, "Sizing"): a kustomization whose resources are this directory, with a
+# nameSuffix and patches. Its image is pinned here, not in ../kustomization.yaml, so every copy
+# carries it.
+#
+# The digest below is pinned by .github/workflows/images.yml (scripts/pin-images.sh). Never edit
+# it by hand.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - daemonset.yaml
+images:
+  - name: loam-nodelet
+    newName: ghcr.io/arugula-salad/loam-nodelet
+    digest: sha256:d720a61c45747dafb7ff8d638056a0b0c9dd90151c200e0b0737c7a9a4327f93

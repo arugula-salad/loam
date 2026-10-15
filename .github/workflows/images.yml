@@ -1,0 +1,322 @@
+# Builds loam's images, pushes them to ghcr.io/<owner>/{loam-api,loam-nodelet,loam-guest,
+# loam-e2b,loam-e2b-fountain} and pins every digest into deploy/base (and the templates of
+# deploy/components), so a checkout of deploy/base always names the images built from the same
+# source. amd64 only: Firecracker here is x86_64.
+#
+# A pull request pins onto its own branch, so the commit that merges carries its code, its
+# deploy/base changes (a new loam-api flag, say) and the images built from them together, and
+# anything that applies deploy/base from main gets them as one revision. (Pinning only after the
+# merge let a flag in deploy/ reach a cluster before the loam-api that knows it, which
+# crashlooped loam-api until the pin landed: #48, #49.) The pin is a GITHUB_TOKEN push, which
+# starts no workflow, so it neither builds again nor loops.
+#
+# deploy/base/pinned-source holds the source key (scripts/source-key.sh) the pinned images were
+# built from. Every pin rewrites it, so a PR pinned before another one merged conflicts there and
+# has to be rebased, which builds and pins it on top. On main, a push whose source key is already
+# pinned (any merged PR) builds nothing; one that isn't (a push straight to main, a PR merged
+# without its pin) builds and pins on main.
+#
+# Pull requests from forks: `pull_request`, never `pull_request_target`, so their code runs with a
+# read-only token and no secrets. They build the images to check that they build, and push and
+# pin nothing; a maintainer's rerun from a branch here does that.
+name: images
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      # The user docs loam-api serves at /docs, built into it (docs/embed.go).
+      - "docs/embed.go"
+      - "docs/primer.md"
+      - "docs/reference/**"
+      - "images/**"
+      - "scripts/build-initramfs.sh"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/images.yml"
+  push:
+    branches: [main]
+    # Not deploy/: the pin commit below touches only that, so it doesn't build again.
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      # The user docs loam-api serves at /docs, built into it (docs/embed.go).
+      - "docs/embed.go"
+      - "docs/primer.md"
+      - "docs/reference/**"
+      - "images/**"
+      - "scripts/build-initramfs.sh"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/images.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  API_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-api
+  NODELET_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-nodelet
+  GUEST_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-guest
+  E2B_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-e2b
+  FOUNTAIN_IMAGE: ghcr.io/${{ github.repository_owner }}/loam-e2b-fountain
+
+jobs:
+  # Whether these sources are already pinned: on main, any merged PR's are; on a PR, a run for
+  # its own pin commit (GitHub holds those for approval, as a bot's push) has nothing to do.
+  key:
+    runs-on: ubuntu-latest
+    outputs:
+      source: ${{ steps.key.outputs.source }}
+      pinned: ${{ steps.key.outputs.pinned }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source key
+        id: key
+        run: |
+          key=$(scripts/source-key.sh)
+          echo "source=${key}" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" != workflow_dispatch && "$(cat deploy/base/pinned-source 2>/dev/null)" == "$key" ]]; then
+            echo "pinned=true" >> "$GITHUB_OUTPUT"
+            echo "source ${key} is already pinned: nothing to build"
+          fi
+
+  build:
+    needs: key
+    if: needs.key.outputs.pinned != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      # A fork's pull request: build only. GitHub gives it a read-only token whatever this job
+      # asks for, so a push would fail anyway; this says so up front.
+      PUBLISH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: env.PUBLISH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The agent's initramfs (loam-agent as PID 1), which ships inside the nodelet's image: a
+      # new agent is a new nodelet image.
+      - name: Build the agent's initramfs
+        run: |
+          ./scripts/build-initramfs.sh
+          test -s dist/initramfs.cpio.gz
+          ls -l dist/initramfs.cpio.gz
+
+      - name: Build and push loam-api
+        id: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/api/Containerfile
+          platforms: linux/amd64
+          push: ${{ env.PUBLISH == 'true' }}
+          build-args: VERSION=${{ github.sha }}
+          tags: ${{ env.API_IMAGE }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # From the repo root, with the initramfs at dist/initramfs.cpio.gz, and also as the named
+      # context `initramfs` (COPY --from=initramfs initramfs.cpio.gz ...), whichever the
+      # Containerfile uses.
+      - name: Build and push loam-nodelet
+        id: nodelet
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: images/nodelet/Containerfile
+          build-contexts: initramfs=dist
+          platforms: linux/amd64
+          push: ${{ env.PUBLISH == 'true' }}
+          build-args: VERSION=${{ github.sha }}
+          tags: ${{ env.NODELET_IMAGE }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # The base template's root filesystem. The nodelet pulls it by digest and flattens it to
+      # ext4; it has no agent of its own (that is the initramfs). Its apt layers aren't
+      # reproducible, so a rebuild is a new digest, and a new digest is a new template disk on
+      # every node: the first sandbox after each deploy waited 10-30 s for it, and the image
+      # cache grew by a disk per deploy. So it is tagged by images/guest's git tree and built only
+      # when that tag doesn't exist yet; an unchanged directory keeps the digest it had.
+      - name: Is loam-guest already built?
+        id: guest-tree
+        run: |
+          tree=$(git rev-parse HEAD:images/guest)
+          echo "tag=${GUEST_IMAGE}:tree-${tree}" >> "$GITHUB_OUTPUT"
+          if digest=$(docker buildx imagetools inspect "${GUEST_IMAGE}:tree-${tree}" --format '{{.Manifest.Digest}}' 2>/dev/null) && [[ "$digest" =~ ^sha256: ]]; then
+            echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+            echo "images/guest unchanged (tree ${tree}): reusing ${digest}"
+          fi
+
+      - name: Build and push loam-guest
+        id: guest-build
+        if: steps.guest-tree.outputs.digest == ''
+        uses: docker/build-push-action@v6
+        with:
+          context: images/guest
+          file: images/guest/Containerfile
+          platforms: linux/amd64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: |
+            ${{ env.GUEST_IMAGE }}:sha-${{ github.sha }}
+            ${{ steps.guest-tree.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: loam-guest digest
+        id: guest
+        run: echo "digest=${{ steps.guest-tree.outputs.digest || steps.guest-build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      # The e2b template's root filesystem (docs/E2B.md): E2B's base, with envd built from its
+      # pinned commit. Tagged by its tree and built only when that changed, as loam-guest is.
+      - name: Is loam-e2b already built?
+        id: e2b-tree
+        run: |
+          tree=$(git rev-parse HEAD:images/e2b)
+          echo "tag=${E2B_IMAGE}:tree-${tree}" >> "$GITHUB_OUTPUT"
+          if digest=$(docker buildx imagetools inspect "${E2B_IMAGE}:tree-${tree}" --format '{{.Manifest.Digest}}' 2>/dev/null) && [[ "$digest" =~ ^sha256: ]]; then
+            echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+            echo "images/e2b unchanged (tree ${tree}): reusing ${digest}"
+          fi
+
+      - name: Build and push loam-e2b
+        id: e2b-build
+        if: steps.e2b-tree.outputs.digest == ''
+        uses: docker/build-push-action@v6
+        with:
+          context: images/e2b
+          file: images/e2b/Containerfile
+          platforms: linux/amd64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: |
+            ${{ env.E2B_IMAGE }}:sha-${{ github.sha }}
+            ${{ steps.e2b-tree.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: loam-e2b digest
+        id: e2b
+        run: echo "digest=${{ steps.e2b-tree.outputs.digest || steps.e2b-build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      # The e2b-fountain template's root filesystem (deploy/components/e2b-fountain): loam-e2b
+      # with another sandbox layout. It is built FROM the loam-e2b digest above, so its tag names
+      # that digest as well as its own tree: a new loam-e2b rebuilds it. Not on a fork's PR, whose
+      # loam-e2b was never pushed.
+      - name: Is loam-e2b-fountain already built?
+        id: fountain-tree
+        if: env.PUBLISH == 'true'
+        env:
+          BASE_DIGEST: ${{ steps.e2b.outputs.digest }}
+        run: |
+          tree=$(git rev-parse HEAD:images/e2b-fountain)
+          base=${BASE_DIGEST#sha256:}
+          echo "tag=${FOUNTAIN_IMAGE}:tree-${tree}-${base::12}" >> "$GITHUB_OUTPUT"
+          if digest=$(docker buildx imagetools inspect "${FOUNTAIN_IMAGE}:tree-${tree}-${base::12}" --format '{{.Manifest.Digest}}' 2>/dev/null) && [[ "$digest" =~ ^sha256: ]]; then
+            echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+            echo "images/e2b-fountain unchanged (tree ${tree}, base ${base::12}): reusing ${digest}"
+          fi
+
+      - name: Build and push loam-e2b-fountain
+        id: fountain-build
+        if: env.PUBLISH == 'true' && steps.fountain-tree.outputs.digest == ''
+        uses: docker/build-push-action@v6
+        with:
+          context: images/e2b-fountain
+          file: images/e2b-fountain/Containerfile
+          platforms: linux/amd64
+          build-args: |
+            BASE=${{ env.E2B_IMAGE }}@${{ steps.e2b.outputs.digest }}
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: |
+            ${{ env.FOUNTAIN_IMAGE }}:sha-${{ github.sha }}
+            ${{ steps.fountain-tree.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: loam-e2b-fountain digest
+        id: fountain
+        run: echo "digest=${{ steps.fountain-tree.outputs.digest || steps.fountain-build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      - name: Digests
+        run: |
+          echo "loam-api      ${{ steps.api.outputs.digest }}"
+          echo "loam-nodelet  ${{ steps.nodelet.outputs.digest }}"
+          echo "loam-guest    ${{ steps.guest.outputs.digest }}"
+          echo "loam-e2b      ${{ steps.e2b.outputs.digest }}"
+          echo "loam-e2b-fountain ${{ steps.fountain.outputs.digest }}"
+
+      # On a pull request from this repository: pin onto its branch, unless it has moved since this
+      # run started, in which case the run for the newer head pins.
+      - name: Pin the images on the PR branch
+        if: github.event_name == 'pull_request' && env.PUBLISH == 'true'
+        env:
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          NODELET_DIGEST: ${{ steps.nodelet.outputs.digest }}
+          GUEST_DIGEST: ${{ steps.guest.outputs.digest }}
+          E2B_DIGEST: ${{ steps.e2b.outputs.digest }}
+          FOUNTAIN_DIGEST: ${{ steps.fountain.outputs.digest }}
+          SOURCE_KEY: ${{ needs.key.outputs.source }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch -q origin "+refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+          if [[ "$(git rev-parse "origin/${HEAD_REF}")" != "$HEAD_SHA" ]]; then
+            echo "${HEAD_REF} moved past ${HEAD_SHA::7}: the run for its new head pins"
+            exit 0
+          fi
+          # The build ran on the merge ref; the pin goes on the branch itself.
+          git checkout -q -B "$HEAD_REF" "origin/${HEAD_REF}"
+          scripts/pin-images.sh
+          git diff --quiet && { echo "already pinned"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/base/ deploy/components/
+          git commit -q -m "deploy(loam): pin images for #${PR} (sha-${GITHUB_SHA::7})"
+          git push -q origin "HEAD:${HEAD_REF}"
+
+      # On main: the backstop, for sources no PR pinned. The commit touches only deploy/,
+      # outside `paths`, so it doesn't trigger another build.
+      - name: Pin the images
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          NODELET_DIGEST: ${{ steps.nodelet.outputs.digest }}
+          GUEST_DIGEST: ${{ steps.guest.outputs.digest }}
+          E2B_DIGEST: ${{ steps.e2b.outputs.digest }}
+          FOUNTAIN_DIGEST: ${{ steps.fountain.outputs.digest }}
+          SOURCE_KEY: ${{ needs.key.outputs.source }}
+        run: |
+          set -euo pipefail
+          scripts/pin-images.sh
+          git diff --quiet && { echo "already pinned"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/base/ deploy/components/
+          git commit -m "deploy(loam): pin images sha-${GITHUB_SHA::7}"
+          git pull --rebase
+          git push

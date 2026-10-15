@@ -1,0 +1,24 @@
+# A working loam on a plain cluster: deploy/base, your domain and bucket, an Ingress, and an
+# egress rule for an in-cluster S3 store. docs/INSTALL.md walks through it. Copy this directory,
+# change every example.com and the store's URL, create the Secrets (secrets.example.yaml says
+# how), then `kubectl apply -k .`.
+#
+# Outside the repo, point `resources` at a pinned copy of the base instead:
+#   - https://github.com/arugula-salad/loam//deploy/base?ref=<commit>
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: loam
+resources:
+  - ../../base
+  - ingress.yaml
+patches:
+  # Your domain: the API at api.<domain>, sandboxes under *.<domain>, and E2B's under
+  # *.e2b.<domain>.
+  - path: domain.yaml
+    target: {kind: Deployment, name: loam-api}
+  # Your snapshot bucket.
+  - path: store.yaml
+    target: {kind: DaemonSet}
+  # Reaching that bucket inside the cluster, which the base's internet-only egress leaves out.
+  - path: store-egress.yaml
+    target: {kind: NetworkPolicy, name: loam-nodelet}

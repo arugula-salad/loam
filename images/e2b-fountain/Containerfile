@@ -1,0 +1,45 @@
+# An example of a custom E2B template (docs/E2B.md, "Templates"): the e2b template's image,
+# envd and all, with the layout one E2B client (Fountain, an agent platform, which the reference
+# deployment runs this template for) expects: a `sprite` user with passwordless sudo,
+# HOME=/home/sprite, ~/.local/bin, ~/.npm-global/bin and ~/.bun/bin on PATH, bun, and the agent
+# CLIs. That client selects `sprite` per envd request, so envd's default user stays the e2b
+# image's `user`.
+#
+# Built by .github/workflows/images.yml as ghcr.io/arugula-salad/loam-e2b-fountain, FROM the
+# loam-e2b digest the same run built or reused; by hand with
+#   docker build --build-arg BASE=ghcr.io/arugula-salad/loam-e2b@sha256:... images/e2b-fountain
+# The agent CLIs float: they are whatever npm has when this directory's tree last changed. The
+# ACP adapters the client drives them through are pinned, and it installs them itself.
+ARG BASE
+FROM ${BASE}
+
+# uid 1002: the e2b image has `user` at 1000 and `loam` at 1001.
+RUN useradd -m -u 1002 -s /bin/bash sprite \
+    && echo 'sprite ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sprite \
+    && chmod 0440 /etc/sudoers.d/sprite
+
+# envd builds the environment of what it runs itself, so the PATH is set where a login shell
+# reads it as well as in the image's environment, which loam-agent's own processes get.
+RUN printf '%s\n' 'case ":$PATH:" in *:/home/sprite/.local/bin:*) ;; *)' \
+      '  PATH="/home/sprite/.local/bin:/home/sprite/.npm-global/bin:/home/sprite/.bun/bin:$PATH" ;;' 'esac' \
+      > /etc/profile.d/fountain.sh
+ENV PATH=/home/sprite/.local/bin:/home/sprite/.npm-global/bin:/home/sprite/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# HOME is the build's only: in the image's environment it would be every process's.
+USER sprite
+WORKDIR /home/sprite
+# npm's default global prefix is /usr/local here, which the e2b image leaves world-writable,
+# but the client's runtime installs expect ~/.npm-global.
+RUN export HOME=/home/sprite && mkdir -p /home/sprite/.local/bin /home/sprite/.npm-global \
+    && npm config set prefix /home/sprite/.npm-global \
+    && curl -fsSL https://bun.sh/install | bash
+
+RUN export HOME=/home/sprite && npm install -g --no-progress --silent \
+      @anthropic-ai/claude-code @openai/codex @google/gemini-cli \
+    && /home/sprite/.bun/bin/bun install -g opencode-ai \
+    && claude --version && codex --version && gemini --version
+
+# loam-agent is PID 1 and runs services and sessions as the users they name; the image's own
+# user is only what this build ran as.
+USER root
+WORKDIR /

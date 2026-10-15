@@ -1,0 +1,49 @@
+# Every name loam answers on goes to loam-api, which tells them apart by Host:
+#   api.loam.example.com                        the API, the docs at /docs, the landing page at /
+#   <name>--<project>.loam.example.com          a sandbox's URL
+#   <port>--<name>--<project>.loam.example.com  a sandbox's port
+#   api.e2b.loam.example.com                    the E2B adapter's control plane (docs/E2B.md)
+#   <port>-<id>.e2b.loam.example.com            an E2B sandbox's port
+# So: two wildcard DNS records (*.loam.example.com and *.e2b.loam.example.com) pointing at your
+# ingress, and two wildcard certificates, since *.loam.example.com doesn't cover a name two labels
+# under it. Wildcard certificates need a DNS-01 challenge; with cert-manager, a Certificate per
+# Secret below and a ClusterIssuer with a DNS-01 solver for your DNS provider (docs/INSTALL.md).
+#
+# loam-api checks the node token on /internal/, so the ingress needn't block it; if your
+# controller can, keep /internal/ off api.loam.example.com anyway (never off the sandbox hosts,
+# where every path is the sandbox's).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: loam
+  annotations:
+    # Streams (exec, logs, events) and WebSockets stay open for a long time. For ingress-nginx:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  # ingressClassName: nginx
+  tls:
+    - hosts: ["*.loam.example.com"]
+      secretName: loam-tls
+    - hosts: ["*.e2b.loam.example.com"]
+      secretName: loam-e2b-tls
+  rules:
+    - host: "*.loam.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: loam-api
+                port: {name: http}
+    - host: "*.e2b.loam.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: loam-api
+                port: {name: http}

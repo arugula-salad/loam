@@ -1,0 +1,136 @@
+# loam-api: the public API (docs/API.md), placement, lifecycle rules, the port URLs and the E2B
+# adapter, under loam's domain and the projects' own. Every record is in Postgres, so the pod
+# holds no state of its own.
+#
+# One replica, replaced rather than rolled: the lifecycle loops (idle, deadlines) and the event
+# streams from the nodelets assume a single loam-api, and two side by side during a roll would
+# both act on the same sandboxes. A deploy is a few seconds without the API.
+#
+# What an overlay sets (docs/INSTALL.md, deploy/examples/basic):
+#   - --domain and --e2b-domain below: the example.com values are placeholders.
+#   - the Secrets this reads: loam-database (`uri`, a postgresql:// URL), loam-admin-token,
+#     loam-node-token, loam-secret-key and loam-identity-key.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loam-api
+  labels:
+    app: loam-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: loam-api
+  template:
+    metadata:
+      labels:
+        app: loam-api
+    spec:
+      # It talks to Postgres and the nodelets, never to the Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        # distroless's nonroot, by number: Kubernetes can't check a named user is non-root.
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: loam-api
+          image: loam-api
+          args:
+            - --listen=:8080
+            # Prometheus metrics (docs/API.md, "Stats"). A port of its own, which the Service
+            # doesn't expose: the page names every project's sandboxes.
+            - --metrics-listen=:9090
+            # The API is https://api.<domain>; sandbox URLs are <name>--<project>.<domain> and
+            # <port>--<name>--<project>.<domain>. A placeholder: set your own.
+            - --domain=loam.example.com
+            # Resolved on every use, never remembered (docs/NODE.md, "Reaching a nodelet").
+            - --nodelet-service=loam-nodelet.loam.svc.cluster.local
+            - --templates=/etc/loam/templates.json
+            # The projects' own URL domains: <name>.<domain> (docs/API.md, "URL domains"). Empty
+            # in the base; each one also needs its DNS and certificate.
+            - --domains=/etc/loam-domains/domains.json
+            # Where a sandbox's image may come from (docs/API.md, "image"). Empty refuses images
+            # and leaves the templates.
+            - --allowed-registries=ghcr.io/arugula-salad
+            # Signs sandbox identity tokens; the issuer is https://api.<domain> (docs/API.md, "Identity").
+            - --identity-keys=/etc/loam-identity
+            # The E2B adapter: api.<it> and <port>-<id>.<it> (docs/E2B.md); E2B's base is the e2b
+            # template in templates.json. A placeholder: set your own, or drop it to serve no E2B.
+            - --e2b-domain=e2b.loam.example.com
+          env:
+            - name: LOAM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: loam-database
+                  key: uri
+            - name: LOAM_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: loam-admin-token
+                  key: LOAM_ADMIN_TOKEN
+            - name: LOAM_NODE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: loam-node-token
+                  key: LOAM_NODE_TOKEN
+            - name: LOAM_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loam-secret-key
+                  key: LOAM_SECRET_KEY
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: templates, mountPath: /etc/loam, readOnly: true}
+            - {name: domains, mountPath: /etc/loam-domains, readOnly: true}
+            - {name: identity, mountPath: /etc/loam-identity, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: templates
+          configMap:
+            name: loam-templates
+        - name: domains
+          configMap:
+            name: loam-domains
+        - name: identity
+          secret:
+            secretName: loam-identity-key
+        - name: tmp
+          emptyDir: {}
+---
+# Every host loam answers on goes here: the API, the sandboxes' URLs and the E2B adapter's. loam-api
+# tells them apart by Host. Route them to it from your ingress (deploy/examples/basic/ingress.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: loam-api
+  labels:
+    app: loam-api
+spec:
+  selector:
+    app: loam-api
+  ports:
+    - {name: http, port: 8080, targetPort: http}

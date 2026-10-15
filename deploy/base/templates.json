@@ -1,0 +1,14 @@
+{
+  "templates": [
+    {
+      "name": "base",
+      "image": "ghcr.io/arugula-salad/loam-guest@sha256:a0a0513ee4a4223deca9edab3fe9a93297c5ca87ef04a9709bf6e4f3fe06fc76",
+      "resources": {"cpus": 2, "memory_mib": 2048, "disk_gib": 20}
+    },
+    {
+      "name": "e2b",
+      "image": "ghcr.io/arugula-salad/loam-e2b@sha256:fb7188f929b959d65497b63c613e827ea5d242770f342d15378ebc5dd0376ed2",
+      "resources": {"cpus": 2, "memory_mib": 1024, "disk_gib": 20}
+    }
+  ]
+}

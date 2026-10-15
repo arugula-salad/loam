@@ -1,0 +1,24 @@
+loam
+Copyright 2026 Jake Gaylor
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software derived from E2B infra
+(https://github.com/e2b-dev/infra), Copyright 2023 FoundryLabs, Inc.,
+licensed under the Apache License, Version 2.0. The snapshot store in
+internal/snapstore is copied and modified from e2b-dev/infra at commit cf536c2;
+each derived file says so in its header, and the license is in
+internal/snapstore/LICENSE-e2b.
+
+Container images built from this repository also include third-party software
+that is not part of this repository's source:
+
+- envd, E2B's in-sandbox daemon, built from e2b-dev/infra at commit
+  92197909dce5a1bef33e764ae4af76f0732fd7a8 (images/e2b), Copyright 2023
+  FoundryLabs, Inc., Apache License 2.0.
+- Firecracker (https://github.com/firecracker-microvm/firecracker), from its
+  release binaries (images/nodelet), Copyright Amazon.com, Inc. or its
+  affiliates, Apache License 2.0.
+- A Linux guest kernel built by the Firecracker project's CI (images/nodelet),
+  GNU General Public License version 2. Its source is the Linux kernel at the
+  version named in images/nodelet/Containerfile.
