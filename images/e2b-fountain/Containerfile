@@ -39,7 +39,7 @@ RUN export HOME=/home/sprite && mkdir -p /home/sprite/.local/bin /home/sprite/.n
 # A new CLI_REFRESH is a new tree, so images.yml's reuse by tree doesn't apply, and a new value
 # for this layer, so no layer cache does either: the install below takes npm's latest. Set by
 # .github/workflows/refresh-clis.yml; never needs editing by hand.
-ARG CLI_REFRESH=2026-10-15
+ARG CLI_REFRESH=2026-10-19-run2
 RUN echo "agent CLIs as of ${CLI_REFRESH}" && export HOME=/home/sprite \
     && npm install -g --no-progress --silent \
       @anthropic-ai/claude-code @openai/codex @google/gemini-cli \
