@@ -50,7 +50,8 @@ resume would be lost in a sandbox later restored from that checkpoint.
 ## The broker CA
 
 A wake's `ca` is the root certificate the sandbox's node signs brokered hosts' certificates with
-(`docs/API.md`, "Secrets"). The agent writes it to `/etc/loam/ca.pem` and puts it, between
+(`docs/API.md`, "Secrets"). The agent writes it to `/etc/loam/ca.pem` and E2B's
+`/usr/local/share/ca-certificates/e2b-ca.crt` on every wake, even without secrets, and puts it, between
 `# loam broker CA` marker lines it replaces in place, at the end of each system bundle the disk
 has: `/etc/ssl/certs/ca-certificates.crt` (Debian, Ubuntu, Alpine, Arch),
 `/etc/pki/tls/certs/ca-bundle.crt` (Fedora, RHEL) and `/etc/ssl/cert.pem`. Every new process

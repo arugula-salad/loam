@@ -20,6 +20,8 @@ const (
 	// caFile is where the root alone is kept, for NODE_EXTRA_CA_CERTS:
 	// Node adds that file to its own built-in roots and ignores the system's.
 	caFile = "/etc/loam/ca.pem"
+	// E2B applications discover this path before starting Node subprocesses.
+	e2bCAFile = "/usr/local/share/ca-certificates/e2b-ca.crt"
 	// caMarker opens and closes the root in a system bundle, so the next wake
 	// replaces it where it is instead of adding another copy.
 	caMarker = "# loam broker CA"
@@ -36,7 +38,7 @@ var caBundles = []string{
 // trustPath is p under the configured trust root ("/" in a guest).
 func (s *Server) trustPath(p string) string { return filepath.Join(s.cfg.TrustRoot, p) }
 
-// installCA writes the root to caFile and into every system bundle the
+// installCA writes the root to the Loam and E2B paths and every system bundle the
 // disk has. A bundle reached through a symlink is the file it names, and
 // two names for one file are written once.
 func (s *Server) installCA(certPEM string) error {
@@ -44,12 +46,14 @@ func (s *Server) installCA(certPEM string) error {
 	if err != nil {
 		return err
 	}
-	ca := s.trustPath(caFile)
-	if err := os.MkdirAll(filepath.Dir(ca), 0o755); err != nil {
-		return err
-	}
-	if err := writeIfChanged(ca, certs, 0o644); err != nil {
-		return err
+	for _, path := range []string{caFile, e2bCAFile} {
+		ca := s.trustPath(path)
+		if err := os.MkdirAll(filepath.Dir(ca), 0o755); err != nil {
+			return err
+		}
+		if err := writeIfChanged(ca, certs, 0o644); err != nil {
+			return err
+		}
 	}
 	done := map[string]bool{}
 	for _, b := range caBundles {
