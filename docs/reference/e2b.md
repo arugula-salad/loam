@@ -216,3 +216,10 @@ sandbox receives no raw key. Header rules do not allow a blocked destination.
 Rotate with `Secret.update('inference-key', newValue)`; delete with `Secret.destroy`.
 Deleted or unavailable values cause matching requests to fail. Secret reads return
 metadata and version only. Exact domains override wildcard rules entirely.
+
+COPY uploads are streamed through private temporary files and stored separately
+from build status/log metadata as bounded binary chunks. The limits remain 64 MiB
+compressed per archive, 256 MiB expanded, and 256 MiB retained per template.
+Transient database failures trigger retries of failed-build status and sandbox
+cleanup. Upgrading from inline upload storage clears only the upload cache; the
+SDK reuploads missing archives, while completed templates remain usable.

@@ -5,6 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +178,91 @@ func TestTemplateBuildPublishesOnlySuccess(t *testing.T) {
 	}
 	if r = fx.do("DELETE", "/templates/"+id, fx.key, nil); r.Code != 204 {
 		t.Fatal(r.Code, r.String())
+	}
+}
+
+// Simulate Postgres restarting after a build command fails. Saving the error
+// and deleting the VM can recover at different times; neither is one-shot.
+type interruptedBuildStore struct {
+	Store
+	failures, attempts int
+}
+
+func (s *interruptedBuildStore) UpdateE2BTemplate(ctx context.Context, project, id string, fn func(*db.E2BTemplate) error) (db.E2BTemplate, error) {
+	s.attempts++
+	if s.failures > 0 {
+		s.failures--
+		return db.E2BTemplate{}, fmt.Errorf("database restarting")
+	}
+	return s.Store.UpdateE2BTemplate(ctx, project, id, fn)
+}
+
+type interruptedBuildLoam struct {
+	Loam
+	failures, attempts int
+}
+
+func (l *interruptedBuildLoam) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "DELETE" {
+		l.attempts++
+		if l.failures > 0 {
+			l.failures--
+			http.Error(w, `{"error":{"code":"unavailable","message":"database restarting"}}`, 503)
+			return
+		}
+	}
+	l.Loam.ServeHTTP(w, r)
+}
+func TestFailedBuildRetriesAfterDatabaseRecovery(t *testing.T) {
+	fx := newFixture(t)
+	source := fx.create(map[string]any{})
+	row := db.E2BTemplate{ID: "tpl-recovery", Project: "p", Name: "recovery", Builds: map[string]db.E2BBuild{"build": {ID: "build", Status: "building", Sandbox: source}}}
+	if err := fx.store.CreateE2BTemplate(context.Background(), row); err != nil {
+		t.Fatal(err)
+	}
+	store := &interruptedBuildStore{Store: fx.f.store, failures: 2}
+	loam := &interruptedBuildLoam{Loam: fx.f.loam, failures: 3}
+	fx.f.store = store
+	fx.f.loam = loam
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if err := fx.f.recoverBuild(ctx, row, "build", source, fmt.Errorf("COPY interrupted")); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := fx.f.findTemplate(ctx, "p", row.ID)
+	if err != nil || saved.Builds["build"].Status != "error" || saved.Builds["build"].Error != "COPY interrupted" {
+		t.Fatal("failure not recorded", saved, err)
+	}
+	if r := fx.do("GET", "/sandboxes/"+source, fx.key, nil); r.Code != 404 {
+		t.Fatal("build sandbox survived", r.Code, r.String())
+	}
+	if store.attempts != 3 || loam.attempts != 4 {
+		t.Fatalf("save/delete attempts: %d/%d", store.attempts, loam.attempts)
+	}
+}
+
+type streamProxyLoam struct {
+	Loam
+	proxy http.Handler
+}
+
+func (l streamProxyLoam) ServeHTTP(w http.ResponseWriter, r *http.Request) { l.proxy.ServeHTTP(w, r) }
+func TestBuildCopyStreamsThroughProxy(t *testing.T) {
+	fx := newFixture(t)
+	payload := bytes.Repeat([]byte("large COPY payload"), 100000)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, err := io.ReadAll(r.Body)
+		if err != nil || !bytes.Equal(got, payload) {
+			t.Errorf("streamed COPY got %d bytes, want %d: %v", len(got), len(payload), err)
+		}
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+	target, _ := url.Parse(backend.URL)
+	fx.f.loam = streamProxyLoam{Loam: fx.f.loam, proxy: httputil.NewSingleHostReverseProxy(target)}
+	// Hide the length as tar.Reader does; a bytes.Reader would mask this bug.
+	_, err := fx.f.rawStreamCall(context.Background(), "p", "PUT", "/fs/file", io.LimitReader(bytes.NewReader(payload), int64(len(payload))))
+	if err != nil {
+		t.Fatal(err)
 	}
 }

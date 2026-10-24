@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -85,7 +87,7 @@ func (f *Frontend) runBuild(t db.E2BTemplate, b db.E2BBuild, req buildRequest) {
 					return err
 				}
 			case "COPY":
-				if err := f.copyBuildFiles(ctx, t.Project, source, cwd, step, t.Files); err != nil {
+				if err := f.copyBuildFiles(ctx, t.Project, source, cwd, step, t.ID); err != nil {
 					return err
 				}
 			case "USER":
@@ -188,25 +190,48 @@ func (f *Frontend) runBuild(t db.E2BTemplate, b db.E2BBuild, req buildRequest) {
 	if err == nil {
 		return
 	}
-	cleanup, stop := context.WithTimeout(context.Background(), time.Minute)
+	// A database restart must not turn one failed attempt into a stranded
+	// build. Retry both state publication and deletion independently as soon as
+	// the control plane recovers, using a fresh context rather than the failed
+	// build's deadline.
+	cleanup, stop := context.WithTimeout(context.Background(), templateBuildTimeout)
 	defer stop()
-	if source != "" {
-		f.call(cleanup, t.Project, "PATCH", "/v1/sandboxes/"+source, map[string]any{"protected": false}, nil)
-		if e := f.call(cleanup, t.Project, "DELETE", "/v1/sandboxes/"+source, nil, nil); e != nil {
-			f.log.Error("failed to delete a failed build sandbox", "sandbox", source, "err", e)
-		}
+	if e := f.recoverBuild(cleanup, t, b.ID, source, err); e != nil {
+		f.log.Error("failed build recovery exhausted", "template", t.ID, "build", b.ID, "err", e)
 	}
-	_, saveErr := f.store.UpdateE2BTemplate(cleanup, t.Project, t.ID, func(t *db.E2BTemplate) error {
-		cur := t.Builds[b.ID]
-		cur.Status = "error"
-		cur.Error = err.Error()
-		cur.UpdatedAt = f.now()
-		cur.FinishedAt = &cur.UpdatedAt
-		t.Builds[b.ID] = cur
-		return nil
-	})
-	if saveErr != nil {
-		f.log.Error("failed to record template build failure", "template", t.ID, "build", b.ID, "err", saveErr)
+}
+
+func (f *Frontend) recoverBuild(ctx context.Context, t db.E2BTemplate, id, source string, cause error) error {
+	saved, deleted := false, source == ""
+	for {
+		attempt, cancel := context.WithTimeout(ctx, 10*time.Second)
+		if !saved {
+			_, err := f.store.UpdateE2BTemplate(attempt, t.Project, t.ID, func(t *db.E2BTemplate) error {
+				cur := t.Builds[id]
+				cur.Status = "error"
+				cur.Error = cause.Error()
+				cur.UpdatedAt = f.now()
+				cur.FinishedAt = &cur.UpdatedAt
+				t.Builds[id] = cur
+				return nil
+			})
+			saved = err == nil || errors.Is(err, db.ErrNotFound)
+		}
+		if !deleted {
+			f.call(attempt, t.Project, "PATCH", "/v1/sandboxes/"+source, map[string]any{"protected": false}, nil)
+			err := f.call(attempt, t.Project, "DELETE", "/v1/sandboxes/"+source, nil, nil)
+			var apiErr *apiserver.Error
+			deleted = err == nil || errors.As(err, &apiErr) && apiErr.Status == 404
+		}
+		cancel()
+		if saved && deleted {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
 	}
 }
 
@@ -253,11 +278,20 @@ func (f *Frontend) installEnvd(ctx context.Context, project, target string) erro
 	return f.call(ctx, project, "POST", "/v1/sandboxes/"+target+"/services/envd/start", nil, nil)
 }
 func (f *Frontend) rawCall(ctx context.Context, project, method, path string, body []byte) ([]byte, error) {
+	return f.rawStreamCall(ctx, project, method, path, bytes.NewReader(body))
+}
+func (f *Frontend) rawStreamCall(ctx context.Context, project, method, path string, body io.Reader) ([]byte, error) {
 	ctx, err := f.loam.AsProject(ctx, project)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://loam-api"+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, "http://loam-api"+path, body)
+	// ReverseProxy treats ContentLength == 0 as an empty incoming request.
+	// Readers without a known length must retain chunked streaming semantics.
+	if err == nil && req.Body != nil && req.Body != http.NoBody && req.ContentLength == 0 {
+		req.ContentLength = -1
+	}
+
 	if err != nil {
 		return nil, err
 	}

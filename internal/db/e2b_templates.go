@@ -17,7 +17,7 @@ type E2BTemplate struct {
 	Project   string              `json:"project"`
 	Name      string              `json:"name"`
 	CreatedAt time.Time           `json:"created_at"`
-	Files     map[string][]byte   `json:"files,omitempty"`
+	Files     map[string]int64    `json:"files,omitempty"`
 	Builds    map[string]E2BBuild `json:"builds"`
 	Tags      map[string]string   `json:"tags"`
 }
@@ -104,6 +104,7 @@ func (m *Memory) DeleteE2BTemplate(_ context.Context, project, id string) error 
 		return ErrNotFound
 	}
 	delete(m.e2bTemplates, id)
+	delete(m.e2bTemplateFiles, id)
 	return nil
 }
 func (p *Postgres) CreateE2BTemplate(ctx context.Context, t E2BTemplate) error {
