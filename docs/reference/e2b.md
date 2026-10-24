@@ -149,3 +149,10 @@ it works whatever the rules.
 
 The commands run as `user` (uid 1000, home `/home/user`, passwordless `sudo`), as on E2B. Using
 the same sandbox through loam's own API, exec runs as `loam` (uid 1001) unless you give `user`.
+
+## Identity after a snapshot
+
+A running process can read its current sandbox ID from `/run/e2b/.E2B_SANDBOX_ID`.
+The agent refreshes this file at every create, resume, restore and fork, before the
+VM is reported running. Reopen the file when reading it, or watch `/run/e2b` for
+replacement. A restored process's environment still contains its original values.

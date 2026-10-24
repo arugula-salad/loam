@@ -52,6 +52,12 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if wk.Sandbox != "" {
+		if err := sys.SetSandboxID(wk.Sandbox); err != nil {
+			writeErr(w, http.StatusInternalServerError, "internal", "set the sandbox identity: "+err.Error())
+			return
+		}
+	}
 	if wk.Network != nil {
 		if err := sys.ConfigureNetwork(wk.Network); err != nil {
 			writeErr(w, http.StatusInternalServerError, "internal", "configure eth0: "+err.Error())

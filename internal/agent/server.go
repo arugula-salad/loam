@@ -62,6 +62,8 @@ var upgrader = websocket.Upgrader{
 type System interface {
 	SetClock(time.Time) error
 	SetHostname(string) error
+	// SetSandboxID refreshes the identity visible to snapshotted processes.
+	SetSandboxID(string) error
 	// ConfigureNetwork converges eth0 on n (a memory snapshot forked onto a
 	// new VM wakes with its source's address).
 	ConfigureNetwork(n *nodeapi.WakeNetwork) error

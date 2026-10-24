@@ -556,6 +556,11 @@ func TestKVM(t *testing.T) {
 	if got := read("sb-kvm2", "/run/mem-marker"); got != "in memory" || fork.IP == v.IP {
 		t.Errorf("fork: memory %q, IP %s", got, fork.IP)
 	}
+	for _, id := range []string{"sb-kvm1", "sb-kvm2"} {
+		if got := read(id, "/run/e2b/.E2B_SANDBOX_ID"); got != id {
+			t.Errorf("%s identity: %q", id, got)
+		}
+	}
 	// The fork's memory had sb-kvm1's address; the wake moved it to its own.
 	if code, out := run("sb-kvm2", "ip", "-4", "-o", "addr", "show", "eth0"); code != 0 || !strings.Contains(out, fork.IP+"/16") {
 		t.Errorf("the fork's eth0: %q, want %s", out, fork.IP)

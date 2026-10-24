@@ -337,3 +337,10 @@ on.
 - **Retries.** 3 on 429 (only with an integer `Retry-After`), 502, 503 and connection failures; a
   create is not retried on 502.
 - **HTTP/2** is negotiated by ALPN on TLS (Traefik); loam-api sees HTTP/1.1.
+
+## Identity after a snapshot
+
+A running process can read its current sandbox ID from `/run/e2b/.E2B_SANDBOX_ID`.
+The agent refreshes this file at every create, resume, restore and fork, before the
+VM is reported running. Reopen the file when reading it, or watch `/run/e2b` for
+replacement. A restored process's environment still contains its original values.

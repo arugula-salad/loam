@@ -23,13 +23,15 @@ import (
 
 // fakeSystem records what the agent asked of the machine.
 type fakeSystem struct {
-	mu        sync.Mutex
-	clock     time.Time
-	hostname  string
-	network   *nodeapi.WakeNetwork
-	drops     int
-	syncs     int
-	poweroffs int
+	mu          sync.Mutex
+	clock       time.Time
+	hostname    string
+	sandboxID   string
+	identityErr error
+	network     *nodeapi.WakeNetwork
+	drops       int
+	syncs       int
+	poweroffs   int
 }
 
 func (f *fakeSystem) SetClock(t time.Time) error {
@@ -42,6 +44,15 @@ func (f *fakeSystem) SetHostname(h string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.hostname = h
+	return nil
+}
+func (f *fakeSystem) SetSandboxID(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.identityErr != nil {
+		return f.identityErr
+	}
+	f.sandboxID = id
 	return nil
 }
 func (f *fakeSystem) ConfigureNetwork(n *nodeapi.WakeNetwork) error {
@@ -170,7 +181,7 @@ func TestWakeAppliesAndPersists(t *testing.T) {
 	wk := nodeapi.Wake{Sandbox: "sb-x", Hostname: "scratch", Env: map[string]string{"FOO": "bar"}, Time: at,
 		Network: &nodeapi.WakeNetwork{IP: "10.240.0.7/16", Gateway: "10.240.0.1"}}
 	h.wantStatus(h.do("POST", "/internal/wake", wk, nil), 204, "")
-	if !h.sys.clock.Equal(at) || h.sys.hostname != "scratch" || h.sys.network == nil || h.sys.network.IP != "10.240.0.7/16" {
+	if !h.sys.clock.Equal(at) || h.sys.hostname != "scratch" || h.sys.sandboxID != "sb-x" || h.sys.network == nil || h.sys.network.IP != "10.240.0.7/16" {
 		t.Fatalf("system after wake: %+v", h.sys)
 	}
 	// The sandbox's env reaches new processes.
