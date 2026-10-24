@@ -11,7 +11,8 @@
 # The agent CLIs float: they are whatever npm has when this directory's tree last changed. A
 # weekly run of .github/workflows/refresh-clis.yml changes it on purpose, by bumping CLI_REFRESH
 # below, and opens a pull request that pins the rebuilt image. The ACP adapters the client drives
-# the CLIs through are pinned, and it installs them itself.
+# the CLIs through are pinned. Claude ACP is preinstalled below; a newer client pin
+# still takes the client's normal runtime installation path.
 ARG BASE
 FROM ${BASE}
 
@@ -45,6 +46,13 @@ RUN echo "agent CLIs as of ${CLI_REFRESH}" && export HOME=/home/sprite \
       @anthropic-ai/claude-code @openai/codex @google/gemini-cli \
     && /home/sprite/.bun/bin/bun install -g opencode-ai \
     && claude --version && codex --version && gemini --version
+
+# Fountain's exact versioned layout and SHA-512 locked dependency tree, including
+# the SDK-bundled Claude executable. Run as sprite so every installed file is owned
+# by the sandbox user. This is intentionally separate from the floating CLI layer.
+COPY --chown=sprite:sprite install-acp.py check-acp.py claude-agent-acp@0.81.2.tsv /tmp/acp-build/
+RUN python3 /tmp/acp-build/install-acp.py
+RUN --network=none python3 /tmp/acp-build/check-acp.py && rm -rf /tmp/acp-build
 
 # loam-agent is PID 1 and runs services and sessions as the users they name; the image's own
 # user is only what this build ran as.
