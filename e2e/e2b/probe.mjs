@@ -196,6 +196,27 @@ async function port() {
   throw new Error(`port 8080 never served: ${last}`)
 }
 
+async function privatePort() {
+  const box = await Sandbox.create({ timeoutMs: 120_000, metadata: META, network: { allowPublicTraffic: false } })
+  try {
+    check(box.trafficAccessToken, 'missing traffic token')
+    await box.commands.run('mkdir -p /tmp/private-www; echo private-ok > /tmp/private-www/index.html')
+    await box.commands.run('cd /tmp/private-www && python3 -m http.server 8080', { background: true })
+    const host = box.getHost(8080)
+    const url = `${process.env.E2B_PROBE_PORT_SCHEME || 'https'}://${host}/`
+    for (const token of ['', 'wrong']) {
+      const r = await request(url, { host, headers: { 'e2b-traffic-access-token': token } })
+      check(r.status === 403, `unauthorized port returned ${r.status}`)
+    }
+    for (let n = 0; n < 30; n++) {
+      const r = await request(url, { host, headers: { 'e2b-traffic-access-token': box.trafficAccessToken } })
+      if (r.status === 200 && r.data.toString().trim() === 'private-ok') return 'missing/wrong token -> 403; SDK token -> 200'
+      await sleep(1000)
+    }
+    throw new Error('authorized private port never served')
+  } finally { await box.kill() }
+}
+
 async function setTimeoutStep() {
   await sbx.setTimeout(600_000)
   const left = ((await sbx.getInfo()).endAt.getTime() - Date.now()) / 1000
@@ -261,7 +282,7 @@ try {
     for (const [name, fn] of [
       ['exec_stream', execStream], ['exec_exit_code', execExitCode], ['background_kill', background],
       ['stdin_pty', stdinPty], ['files', files], ['upload_download', uploadDownload], ['port', port],
-      ['set_timeout', setTimeoutStep], ['metrics', metrics], ['list', listing],
+      ['private_port', privatePort], ['set_timeout', setTimeoutStep], ['metrics', metrics], ['list', listing],
       ['pause_resume', pauseResume], ['kill', kill],
     ]) await step(name, fn)
   }

@@ -421,7 +421,6 @@ func TestCreateErrors(t *testing.T) {
 		`{"secure": false}`:                 "secure",
 		`{"autoResume": {"enabled": true}}`: "autoResume",
 		`{"autoPause": true, "autoPauseMemory": false, "autoResume": {"enabled": true}}`: "autoResume",
-		`{"network": {"allowPublicTraffic": false}}`:                                     "allowPublicTraffic",
 		`{"network": {"egressProxy": {"address": "x"}}}`:                                 "egressProxy",
 		`{"metadata": {"a=b": "c"}}`:                                                     "label",
 		`{"envVars": {"not a name": "x"}}`:                                               "env",
@@ -822,8 +821,14 @@ func TestRoute(t *testing.T) {
 	local := New(Options{Domain: "E2B.localhost:7901"}, fx.srv, fx.store)
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Host = "8080-sb-abc.e2b.localhost:7901"
+	rec := httptest.NewRecorder()
+	local.writeSandbox(rec, 201, db.E2BSandbox{}, "")
+	var answer sandboxJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatal(err)
+	}
 	if tg, ok := local.route(r); !local.ours(r.Host) || !local.ours("api.e2b.localhost:7901") || !ok || tg.port != 8080 ||
-		local.sandboxJSON(db.E2BSandbox{}, "").Domain != "e2b.localhost:7901" {
+		answer.Domain != "e2b.localhost:7901" {
 		t.Errorf("a domain with a port: %+v %v", tg, ok)
 	}
 	// So loam's own API goes on working behind it.
@@ -1385,5 +1390,76 @@ func TestNoSecretKey(t *testing.T) {
 	}
 	if _, err := fx.srv.Seal("sb-x", []byte("t")); err == nil {
 		t.Fatal("sealed without a key")
+	}
+}
+
+func TestPrivateTraffic(t *testing.T) {
+	fx := newFixture(t)
+	w := fx.do("POST", "/v2/sandboxes", fx.key, map[string]any{"templateID": "base", "network": map[string]any{"allowPublicTraffic": false}, "autoPause": true, "autoResume": map[string]any{"enabled": true}})
+	if w.Code != 201 {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	created := decode[sandboxJSON](t, w)
+	id, token := created.SandboxID, created.TrafficAccessToken
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(token) || !fx.row(id).PrivateTraffic {
+		t.Fatalf("private create: %+v", created)
+	}
+	host := "8080-" + id + "." + domain
+	fx.node.Listen(id, 8080, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, r.Header.Get("e2b-traffic-access-token"))
+	}))
+	for _, tc := range []struct{ token, message string }{{"", "is missing"}, {"wrong", "is invalid"}} {
+		w := fx.do("GET", "/", "", nil, "Host", host, "e2b-traffic-access-token", tc.token)
+		if w.Code != 403 || !strings.Contains(w.String(), tc.message) || w.Header.Get("Access-Control-Allow-Origin") != "*" {
+			t.Fatalf("denied: %+v", w)
+		}
+	}
+	w = fx.do("GET", "/", "", nil, "Host", host, "e2b-traffic-access-token", token)
+	if w.Code != 200 || w.String() != token {
+		t.Fatalf("authorized/forwarded: %+v", w)
+	}
+	w = fx.do("OPTIONS", "/", "", nil, "Host", host, "Access-Control-Request-Headers", "e2b-traffic-access-token")
+	if w.Code != 403 {
+		t.Fatalf("preflight: %+v", w)
+	}
+	for _, tc := range []struct {
+		mode, accept string
+		html         bool
+	}{{"navigate", "text/html", true}, {"cors", "text/html", false}, {"navigate", "application/json", false}, {"websocket", "*/*", false}} {
+		w := fx.do("GET", "/", "", nil, "Host", host, "User-Agent", "Mozilla/5.0", "Accept", tc.accept, "Sec-Fetch-Mode", tc.mode)
+		if strings.HasPrefix(w.Header.Get("Content-Type"), "text/html") != tc.html {
+			t.Fatalf("negotiation: %+v", w)
+		}
+	}
+	w = fx.do("GET", "/x", "", nil, "Host", "49983-"+id+"."+domain, "X-Access-Token", created.EnvdAccessToken)
+	if w.Code != 200 {
+		t.Fatalf("envd exemption: %+v", w)
+	}
+	for _, path := range []string{"/sandboxes/" + id, "/v2/sandboxes"} {
+		w := fx.do("GET", path, fx.key, nil)
+		if w.Code != 200 || strings.Contains(w.String(), "trafficAccessToken") {
+			t.Fatalf("detail/list leaked: %+v", w)
+		}
+	}
+	for _, tc := range []struct {
+		body   string
+		status int
+	}{{`{"allowPublicTraffic":false}`, 204}, {`{"allowPublicTraffic":true}`, 400}, {`{}`, 204}} {
+		w := fx.do("PUT", "/sandboxes/"+id+"/network", fx.key, []byte(tc.body))
+		if w.Code != tc.status {
+			t.Fatalf("update %s: %+v", tc.body, w)
+		}
+	}
+	w = fx.do("POST", "/sandboxes/"+id+"/pause", fx.key, nil)
+	if w.Code != 204 {
+		t.Fatalf("pause: %+v", w)
+	}
+	w = fx.do("GET", "/", "", nil, "Host", host)
+	if w.Code != 403 || fx.sandbox(id).State != api.StatePaused {
+		t.Fatalf("unauthorized wake: %+v", w)
+	}
+	w = fx.do("POST", "/sandboxes/"+id+"/connect", fx.key, map[string]any{})
+	if w.Code >= 300 || decode[sandboxJSON](t, w).TrafficAccessToken != token {
+		t.Fatalf("connect token: %+v", w)
 	}
 }

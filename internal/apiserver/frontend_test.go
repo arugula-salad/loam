@@ -46,3 +46,28 @@ func TestSealOpen(t *testing.T) {
 		t.Fatal("CanSeal with a key")
 	}
 }
+
+func TestTrafficToken(t *testing.T) {
+	h := newHarness(t)
+	a, err := h.srv.TrafficToken("sb-a")
+	if err != nil || len(a) != 64 {
+		t.Fatalf("token: %q %v", a, err)
+	}
+	again, _ := h.srv.TrafficToken("sb-a")
+	b, _ := h.srv.TrafficToken("sb-b")
+	if a != again || a == b {
+		t.Fatal("tokens must be stable and sandbox-specific")
+	}
+	other, err := newSealer(bytes.Repeat([]byte{99}, SecretKeySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{sealer: other}
+	changed, _ := srv.TrafficToken("sb-a")
+	if a == changed {
+		t.Fatal("token survived key rotation")
+	}
+	if _, err := (&Server{}).TrafficToken("sb-a"); err == nil {
+		t.Fatal("token without key")
+	}
+}

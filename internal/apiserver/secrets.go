@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -40,7 +42,10 @@ func ParseSecretKey(s string) ([]byte, error) {
 }
 
 // sealer seals and opens secret values.
-type sealer struct{ aead cipher.AEAD }
+type sealer struct {
+	aead       cipher.AEAD
+	trafficKey []byte
+}
 
 func newSealer(key []byte) (*sealer, error) {
 	if len(key) != SecretKeySize {
@@ -54,7 +59,11 @@ func newSealer(key []byte) (*sealer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &sealer{aead: aead}, nil
+	trafficKey, err := hkdf.Key(sha256.New, key, nil, "loam e2b traffic token", 32)
+	if err != nil {
+		return nil, err
+	}
+	return &sealer{aead: aead, trafficKey: trafficKey}, nil
 }
 
 // secretAD binds a sealed value to its row: one copied to another project or

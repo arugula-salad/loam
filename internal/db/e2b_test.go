@@ -38,7 +38,7 @@ func e2bConformance(t *testing.T, st db.Store) {
 	}
 	row := func(id, project string) db.E2BSandbox {
 		return db.E2BSandbox{Sandbox: id, Project: project, Template: "base", SealedToken: []byte("sealed-" + id), TimeoutS: 300,
-			StartedAt: now, EndAt: now.Add(5 * time.Minute), KeepMemory: true}
+			StartedAt: now, EndAt: now.Add(5 * time.Minute), KeepMemory: true, PrivateTraffic: id == "sb-a"}
 	}
 
 	// Only for a sandbox that exists, and once.

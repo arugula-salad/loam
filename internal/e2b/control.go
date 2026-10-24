@@ -181,13 +181,14 @@ func (f *Frontend) timeoutOf(w http.ResponseWriter, secs *int, def time.Duration
 
 // sandboxJSON is Sandbox: the answer to a create or a connect.
 type sandboxJSON struct {
-	Alias           string `json:"alias,omitempty"`
-	ClientID        string `json:"clientID"`
-	Domain          string `json:"domain,omitempty"`
-	EnvdAccessToken string `json:"envdAccessToken,omitempty"`
-	EnvdVersion     string `json:"envdVersion"`
-	SandboxID       string `json:"sandboxID"`
-	TemplateID      string `json:"templateID"`
+	TrafficAccessToken string `json:"trafficAccessToken,omitempty"`
+	Alias              string `json:"alias,omitempty"`
+	ClientID           string `json:"clientID"`
+	Domain             string `json:"domain,omitempty"`
+	EnvdAccessToken    string `json:"envdAccessToken,omitempty"`
+	EnvdVersion        string `json:"envdVersion"`
+	SandboxID          string `json:"sandboxID"`
+	TemplateID         string `json:"templateID"`
 }
 
 // detailJSON is SandboxDetail (GET /sandboxes/{id}) and, without the token and
@@ -260,9 +261,18 @@ func metadataOf(labels map[string]string) map[string]string {
 	return out
 }
 
-func (f *Frontend) sandboxJSON(row db.E2BSandbox, token string) sandboxJSON {
-	return sandboxJSON{Alias: row.Template, ClientID: clientID, Domain: f.opts.Domain, EnvdAccessToken: token,
-		EnvdVersion: EnvdVersion, SandboxID: row.Sandbox, TemplateID: row.Template}
+func (f *Frontend) writeSandbox(w http.ResponseWriter, status int, row db.E2BSandbox, token string) {
+	trafficToken := ""
+	if row.PrivateTraffic {
+		var err error
+		trafficToken, err = f.loam.TrafficToken(row.Sandbox)
+		if err != nil {
+			f.fail(w, row.Sandbox, err)
+			return
+		}
+	}
+	writeJSON(w, status, sandboxJSON{TrafficAccessToken: trafficToken, Alias: row.Template, ClientID: clientID, Domain: f.opts.Domain, EnvdAccessToken: token,
+		EnvdVersion: EnvdVersion, SandboxID: row.Sandbox, TemplateID: row.Template})
 }
 
 // detailOf is GET /sandboxes/{id}'s answer, with token, or a listing's, without.
@@ -399,6 +409,7 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, project string
 	token := newAccessToken()
 	row := db.E2BSandbox{Project: project, Template: tmpl, TimeoutS: int(timeout / time.Second),
 		StartedAt: now, EndAt: now.Add(timeout), AutoPause: autoPause, KeepMemory: keepMemory, AutoResume: autoResume}
+	row.PrivateTraffic = req.Network != nil && req.Network.AllowPublicTraffic != nil && !*req.Network.AllowPublicTraffic
 	labels := map[string]string{}
 	for k, v := range req.Metadata {
 		labels[LabelPrefix+k] = v
@@ -436,7 +447,7 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, project string
 		return
 	}
 	f.log.Info("sandbox created", "sandbox", sb.ID, "project", project, "template", tmpl, "timeout", timeout)
-	writeJSON(w, http.StatusCreated, f.sandboxJSON(row, token))
+	f.writeSandbox(w, http.StatusCreated, row, token)
 }
 
 func (f *Frontend) get(w http.ResponseWriter, r *http.Request, project string, row db.E2BSandbox) {
@@ -684,7 +695,7 @@ func (f *Frontend) resumeOrExtend(w http.ResponseWriter, r *http.Request, row db
 				return
 			}
 		}
-		writeJSON(w, http.StatusOK, f.sandboxJSON(row, token))
+		f.writeSandbox(w, http.StatusOK, row, token)
 		return
 	}
 	row, err = f.wake(context.WithoutCancel(r.Context()), row, timeout)
@@ -692,7 +703,7 @@ func (f *Frontend) resumeOrExtend(w http.ResponseWriter, r *http.Request, row db
 		f.fail(w, row.Sandbox, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, f.sandboxJSON(row, token))
+	f.writeSandbox(w, http.StatusCreated, row, token)
 }
 
 // wake resumes a paused sandbox, under its lock: loam's wake (its memory
@@ -732,11 +743,15 @@ func (f *Frontend) updateNetwork(w http.ResponseWriter, r *http.Request, project
 			if raw, ok := all["allow_internet_access"]; ok {
 				err = json.Unmarshal(raw, &req.AllowInternetAccess)
 			}
-			req.unknown = unknownFields(all, "allowOut", "denyOut", "allow_internet_access")
+			req.unknown = unknownFields(all, "allowOut", "denyOut", "allow_internet_access", "allowPublicTraffic")
 		}
 	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "Error when parsing request: "+err.Error())
+		return
+	}
+	if req.AllowPublicTraffic != nil && *req.AllowPublicTraffic == row.PrivateTraffic {
+		writeErr(w, http.StatusBadRequest, "network.allowPublicTraffic is set at create and can't be changed")
 		return
 	}
 	rules, err := egressOf(req.AllowInternetAccess, &req.networkReq)

@@ -100,7 +100,7 @@ events, `GET /sandboxes/metrics`, teams and API key management.
 Refused at create with a `400` that names the field: any template but `base`, `mcp`, `iam`,
 volume mounts, egress proxies and transform rules (`network.rules`, `network.egressProxy`), IP
 addresses and CIDRs in `allowOut`/`denyOut` (except `0.0.0.0/0`, "all traffic"),
-`allowPublicTraffic: false`, `secure: false`, and a `denyOut` name that an `allowOut` wildcard
+`secure: false`, and a `denyOut` name that an `allowOut` wildcard
 covers.
 
 ```console
@@ -134,7 +134,7 @@ it works whatever the rules.
 
 ## Differences from hosted E2B
 
-- **Ports are public.** `https://<port>-<id>.e2b.loam.example.com` needs no credential, as on
+- **Ports are public by default.** `https://<port>-<id>.e2b.loam.example.com` needs no credential, as on
   hosted E2B. The same port through loam's own URL (`https://<port>--<name>--<project>.loam.example.com`)
   keeps loam's access setting, private by default.
 - **A server on `127.0.0.1` is reachable**; hosted E2B needs `0.0.0.0`.
@@ -156,3 +156,18 @@ A running process can read its current sandbox ID from `/run/e2b/.E2B_SANDBOX_ID
 The agent refreshes this file at every create, resume, restore and fork, before the
 VM is reported running. Reopen the file when reading it, or watch `/run/e2b` for
 replacement. A restored process's environment still contains its original values.
+
+## Private ports
+
+Create with `network: { allowPublicTraffic: false }` in JavaScript (Python:
+`network={"allow_public_traffic": False}`). The SDK exposes `trafficAccessToken`
+(`traffic_access_token` in Python). Send it on requests to user ports:
+
+```sh
+curl -H "e2b-traffic-access-token: $TRAFFIC_TOKEN" https://8000-sb-example.e2b.loam.example.com
+```
+
+A missing or incorrect token gets 403 without waking the sandbox. envd still uses its
+own access token. Public access is fixed at create; network updates can repeat the same
+setting but cannot change it. The traffic token survives pause/resume and changes if the
+operator rotates `LOAM_SECRET_KEY`.

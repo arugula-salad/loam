@@ -68,6 +68,14 @@ project's keys through the E2B API, to check a request's token or signature, and
 its `GET` a 500, never a token that isn't its own. A deployment without a secret key can't keep
 tokens sealed, so it answers every E2B create 501 (a sandbox's credentials can't be kept safe).
 
+**The traffic token** is returned as `trafficAccessToken` in create, connect and resume
+responses for private sandboxes only, never in details or listings. It is hex HMAC-SHA256
+of the sandbox ID under a sub-key derived from `LOAM_SECRET_KEY` with HKDF-SHA256
+(info `loam e2b traffic token`, no salt). Only the `private_traffic` boolean is stored.
+The token is stable across pause/resume and API restarts; rotating the secret key changes it.
+`PUT /sandboxes/{id}/network` accepts `allowPublicTraffic` only when it matches the
+create-time value; a change is 400 `network.allowPublicTraffic is set at create and can't be changed`.
+
 ## Control plane
 
 E2B's REST API as the SDKs use it. Shapes, status codes and messages are hosted E2B's (its OpenAPI
@@ -95,9 +103,9 @@ call's not-found (`false` for kill), 429 `RateLimitError` (retried after an inte
 
 **Create's options.** Honoured: `templateID`, `timeout`, `metadata`, `envVars`, `autoPause`,
 `autoPauseMemory`, `autoResume`, `secure: true`, `allow_internet_access`, `network.allowOut`,
-`network.denyOut`, `network.allowPublicTraffic: true`. Any other field that isn't null is a 400
+`network.denyOut`, `network.allowPublicTraffic`. Any other field that isn't null is a 400
 naming it (`mcp`, `iam`, `volumeMounts`, `network.rules`, `network.egressProxy`, …), as are
-`secure: false` (every sandbox here has an access token), `network.allowPublicTraffic: false`, and
+`secure: false` (every sandbox here has an access token), and
 the SDKs' own constraints (`autoResume` or `autoPauseMemory` without `autoPause`, `autoResume`
 with `autoPauseMemory: false`). An unknown template is 404 `template '<name>' not found`, as hosted.
 
@@ -164,9 +172,18 @@ Anything else on the adapter's hosts is the control plane.
   one up. The path is cleaned once, before the check, and forwarded as cleaned.
 - **envd's internal API** (`/init`, `/freeze`, `/unfreeze`, `/fsfreeze`, `/fsthaw`, `/collapse`,
   `/upgrade`) is 404 from outside, however the path or port is spelled. `/init` is the adapter's.
-- **User ports are public**, as on hosted E2B: `<port>-<id>.<domain>` needs no credential. This
+- **User ports are public by default**, as on hosted E2B: `<port>-<id>.<domain>` needs no credential. This
   is E2B's default, not loam's: the same port through loam's own URL
   (`<port>--<name>--<project>.<loam domain>`) keeps loam's access setting, private by default.
+- **Private user ports.** Create with `network.allowPublicTraffic: false` to require the
+  `e2b-traffic-access-token` header on every port except envd (49983). Missing or incorrect
+  tokens get 403 before any auto-resume, including CORS preflights. The JSON body contains
+  `sandboxId`, `code: 403`, and `message`: `Sandbox is secured with traffic access token. `
+  followed by `Token header 'e2b-traffic-access-token' is missing` or
+  `Provided token in header 'e2b-traffic-access-token' is invalid`. Browser navigation gets
+  an HTML page; requests preferring JSON or initiated by scripts get JSON. Both carry
+  `Access-Control-Allow-Origin: *`. The header is forwarded unchanged to the guest.
+  Unknown sandboxes and paused sandboxes without auto-resume still get 502 first.
 - **A paused sandbox** (E2B's paused) answers the proxy's 502 `{"sandboxId", "message": "The
   sandbox was not found", "code": 502}`, which the SDKs read as not running; so does an unknown
   ID. A port nothing listens on answers 502 `The sandbox is running but port is not open` at once.
@@ -246,7 +263,7 @@ build API (`/v3/templates`, `/templates/…`), snapshots and `fork` (`/sandboxes
 `/sandboxes/{id}/snapshots`, `/snapshots`), volumes, sandbox logs and events,
 `GET /sandboxes/metrics`, teams and API key management. Refused at create (above): templates
 other than `base`, `mcp`, `iam`, volumes, egress proxies and transform rules, CIDR rules,
-`allowPublicTraffic: false` and its `e2b-traffic-access-token`, `secure: false`.
+`secure: false`.
 
 ## Differences from hosted E2B
 
@@ -276,7 +293,7 @@ Measured against hosted E2B with the conformance probes.
 ## Conformance
 
 `e2e/e2b/run.sh` runs both official SDKs (pinned: `e2e/e2b/requirements.txt`,
-`e2e/e2b/package.json`), 13 steps each, against a deployment, then a sweep for leaked sandboxes:
+`e2e/e2b/package.json`), 14 steps each, against a deployment, then a sweep for leaked sandboxes:
 
 ```sh
 E2B_DOMAIN=e2b.loam.example.com E2B_API_KEY=loam_... e2e/e2b/run.sh
