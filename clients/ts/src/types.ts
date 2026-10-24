@@ -382,6 +382,7 @@ export interface PutTask {
 
 /** Network is what a sandbox may reach (docs/API.md, "Network"). No rules is the whole internet. */
 export interface Network {
+  request_headers?: {domain: string; headers: Record<string, string>}[];
   egress: Rule[];
 }
 

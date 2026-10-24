@@ -76,6 +76,7 @@ func (e *Enforcer) Set(src netip.Addr, id string, p *Policy) {
 		vs = &vmState{id: id, learned: map[netip.Addr]map[string]time.Time{}, flows: map[*flow]struct{}{}}
 		e.vms[src] = vs
 	}
+	oldPolicy := vs.policy
 	vs.policy = p
 	for dst, names := range vs.learned {
 		for n := range names {
@@ -88,7 +89,7 @@ func (e *Enforcer) Set(src netip.Addr, id string, p *Policy) {
 		}
 	}
 	for f := range vs.flows {
-		if !p.permits(f.via, f.port) {
+		if !p.permits(f.via, f.port) || (f.port == 443 && oldPolicy.Brokers(f.via) != p.Brokers(f.via)) {
 			doomed = append(doomed, f)
 			delete(vs.flows, f)
 		}

@@ -3,6 +3,7 @@ package network
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 
@@ -16,8 +17,10 @@ import (
 // allowed on 443, and its secrets. It is never changed once compiled: a new
 // policy is a new Policy, so whoever holds one sees a consistent whole.
 type Policy struct {
-	rules   *netpolicy.Policy
-	secrets []Secret
+	rules     *netpolicy.Policy
+	secrets   []Secret
+	headers   []nodeapi.HeaderRule
+	sensitive []string
 }
 
 // Secret is one of a VM's secrets as the broker uses it.
@@ -73,6 +76,20 @@ func Compile(p nodeapi.Policy) (*Policy, error) {
 		return nil, err
 	}
 	out := &Policy{rules: rules}
+	for _, r := range p.RequestHeaders {
+		check := api.HeaderRule{Domain: r.Domain, Headers: r.Headers}
+		if err := netpolicy.ValidateHeaders([]api.HeaderRule{check}); err != nil {
+			return nil, err
+		}
+		r.Domain = strings.ToLower(r.Domain)
+		r.Headers = maps.Clone(r.Headers)
+		out.headers = append(out.headers, r)
+	}
+	for _, v := range p.Sensitive {
+		if v != "" {
+			out.sensitive = append(out.sensitive, v)
+		}
+	}
 	seen := map[string]bool{}
 	for _, s := range p.Secrets {
 		sec, err := compileSecret(s)
@@ -165,6 +182,9 @@ func (p *Policy) Secrets() []Secret {
 // Brokers reports whether name is one of a secret's hosts, whose TLS the
 // proxy terminates.
 func (p *Policy) Brokers(name string) bool {
+	if _, ok := p.HeadersFor(name); ok {
+		return true
+	}
 	for _, s := range p.Secrets() {
 		for _, h := range s.Hosts {
 			if h.MatchName(name) {
@@ -181,7 +201,7 @@ func (p *Policy) set() string {
 	switch {
 	case p.Restricted():
 		return setRestricted
-	case len(p.Secrets()) > 0:
+	case p.NeedsBroker():
 		return setHTTPS
 	}
 	return ""
@@ -195,4 +215,42 @@ func (p *Policy) permits(via string, port int) bool {
 		return true
 	}
 	return via != "" && p.Allows(via, port)
+}
+
+// NeedsBroker includes literal transforms, which also terminate TLS.
+func (p *Policy) NeedsBroker() bool { return p != nil && (len(p.secrets) > 0 || len(p.headers) > 0) }
+
+// HeadersFor chooses one most-specific domain. An exact host beats a wildcard;
+// a narrower wildcard beats a broader one. Rules from other domains do not merge.
+func (p *Policy) HeadersFor(name string) (nodeapi.HeaderRule, bool) {
+	var best nodeapi.HeaderRule
+	score := -1
+	if p == nil {
+		return best, false
+	}
+	for _, r := range p.headers {
+		if !(Host{Name: r.Domain}).MatchName(name) {
+			continue
+		}
+		n := len(r.Domain) * 2
+		if !strings.HasPrefix(r.Domain, "*.") {
+			n += 10000
+		}
+		if n > score {
+			score = n
+			best = r
+		}
+	}
+	return best, score >= 0
+}
+
+// ScanSecrets extends the reflection guard with values used by header rules.
+func (p *Policy) ScanSecrets() []Secret {
+	out := append([]Secret{}, p.Secrets()...)
+	if p != nil {
+		for _, v := range p.sensitive {
+			out = append(out, Secret{Value: v})
+		}
+	}
+	return out
 }

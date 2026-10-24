@@ -558,3 +558,41 @@ func TestLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestHeaderRulesOverrideRotateAndRefuseReflection(t *testing.T) {
+	h := newHarness(t)
+	set := func(value string, missing bool) {
+		p, err := network.Compile(nodeapi.Policy{RequestHeaders: []nodeapi.HeaderRule{{Domain: "example.com", Headers: map[string]string{"Authorization": "Bearer " + value, "X-Literal": "literal"}, Unavailable: missing}}, Sensitive: []string{value}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.mu.Lock()
+		h.pol = p
+		h.mu.Unlock()
+	}
+	set(ghValue, false)
+	resp, body := h.get(t, h.client, "/x", "Authorization", "guest-value")
+	if resp.StatusCode != 200 || body != "ok" {
+		t.Fatal(resp.StatusCode, body)
+	}
+	if got := h.o.last(t).header; got.Get("Authorization") != "Bearer "+ghValue || got.Get("X-Literal") != "literal" {
+		t.Fatal("headers not replaced")
+	}
+	resp, body = h.get(t, h.client, "/echo")
+	if resp.StatusCode != 502 || strings.Contains(body, ghValue) {
+		t.Fatal("secret reflection", resp.StatusCode)
+	}
+	set("rotated-value-789", false)
+	resp, _ = h.get(t, h.client, "/x")
+	if resp.StatusCode != 200 || h.o.last(t).header.Get("Authorization") != "Bearer rotated-value-789" {
+		t.Fatal("rotation on existing connection")
+	}
+	set("", true)
+	resp, _ = h.get(t, h.client, "/x")
+	if resp.StatusCode != 502 {
+		t.Fatal("missing secret was sent", resp.StatusCode)
+	}
+	if strings.Contains(h.logs.String(), ghValue) || strings.Contains(h.logs.String(), "rotated-value-789") {
+		t.Fatal("secret leaked into logs")
+	}
+}

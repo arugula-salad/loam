@@ -437,3 +437,21 @@ serves E2B's API there, for E2B's own SDKs, with a project's key as `E2B_API_KEY
 An E2B sandbox is a sandbox of the key's project like any other, made from the `e2b` template, its
 E2B metadata in labels under `e2b/` and its timeout its `deadline`; this API sees and acts on it
 as on any other.
+
+
+### HTTPS request header transforms
+
+`network.request_headers` is an optional array of `{domain, headers}`. Each header
+value is literal or contains `${e2b.secrets.NAME}` references to the project's E2B
+secret store. These transforms do not change egress permission or attach a native
+secret to the guest. They require a broker-capable node and apply only to HTTPS
+port 443. The most specific matching domain supplies the entire header map; exact
+domains outrank `*.` wildcards. Native attached secrets retain their existing host
+allowance and placeholder behavior.
+
+Domains must be DNS names or leading wildcards, without paths. At most 128 rules,
+64 headers per rule, and 16 KiB per header format are accepted. Duplicate domains,
+invalid header names, CR/LF/NUL, and routing/framing headers are refused. Unknown
+secret references cause matching requests to fail closed. Snapshot forks inherit
+formats, and waking resolves current project secret values. Rules returned by the
+API contain references rather than resolved credentials.

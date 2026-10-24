@@ -329,7 +329,7 @@ func (n *Nodelet) checkPolicy(w http.ResponseWriter, p nodeapi.Policy) bool {
 		writeErr(w, 400, "invalid", err.Error())
 		return false
 	}
-	if len(p.Secrets) > 0 && !n.broker {
+	if (len(p.Secrets) > 0 || len(p.RequestHeaders) > 0) && !n.broker {
 		writeErr(w, 501, "unsupported", "this node has no broker CA")
 		return false
 	}

@@ -32,6 +32,7 @@ type Memory struct {
 	e2bTemplates map[string]E2BTemplate
 	traffic      map[[2]string]*memTraffic // by sandbox and day
 	salts        map[string][]byte
+	e2bSecrets   map[string]E2BSecret
 }
 
 // memTraffic is a day's counts and its set of visitor hashes.
@@ -115,6 +116,11 @@ func (m *Memory) DeleteProject(_ context.Context, name string) error {
 	for id, k := range m.keys {
 		if k.Project == name {
 			delete(m.keys, id)
+		}
+	}
+	for id, s := range m.e2bSecrets {
+		if s.Project == name {
+			delete(m.e2bSecrets, id)
 		}
 	}
 	for k := range m.secrets {
