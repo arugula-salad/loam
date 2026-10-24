@@ -112,6 +112,9 @@ func archiveFiles(raw []byte) ([]archiveFile, error) {
 			return nil, err
 		}
 		name := strings.TrimPrefix(h.Name, "./")
+		if name == "" && h.Typeflag == tar.TypeDir && h.Name == "./" {
+			name = "."
+		}
 		if name == "" || path.IsAbs(name) || name == ".." || strings.HasPrefix(path.Clean(name), "../") {
 			return nil, fmt.Errorf("archive path must be relative")
 		}

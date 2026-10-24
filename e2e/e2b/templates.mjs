@@ -34,12 +34,12 @@ try {
   }
 } finally {
   await Promise.all(boxes.map(box => box.kill()))
-  if (built) {
+  {
     const url = process.env.E2B_API_URL ?? `https://api.${process.env.E2B_DOMAIN}`
-    const response = await fetch(`${url}/templates/${built.templateId}`, {
+    const response = await fetch(`${url}/templates/${built?.templateId ?? name}`, {
       method: 'DELETE', headers: {'X-API-Key': process.env.E2B_API_KEY},
     })
-    if (!response.ok) throw new Error(`template cleanup: ${response.status}`)
+    if (!response.ok && response.status !== 404) throw new Error(`template cleanup: ${response.status}`)
   }
   await rm(context, {recursive: true, force: true})
 }

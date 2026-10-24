@@ -63,7 +63,7 @@ func TestTemplateArchiveBoundaries(t *testing.T) {
 		kind byte
 		ok   bool
 	}{
-		{"hello.txt", tar.TypeReg, true}, {"nested/hello.txt", tar.TypeReg, true},
+		{"./", tar.TypeDir, true}, {"hello.txt", tar.TypeReg, true}, {"nested/hello.txt", tar.TypeReg, true},
 		{"../escape", tar.TypeReg, false}, {"/absolute", tar.TypeReg, false},
 		{"nested/../../escape", tar.TypeReg, false}, {"link", tar.TypeSymlink, false},
 		{"hardlink", tar.TypeLink, false}, {"device", tar.TypeChar, false},
