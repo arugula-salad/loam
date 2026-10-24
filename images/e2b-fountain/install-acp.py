@@ -6,6 +6,9 @@ import hashlib
 import io
 from pathlib import Path
 import platform
+import os
+import re
+import shutil
 import subprocess
 import tarfile
 import urllib.request
@@ -19,10 +22,23 @@ MANIFEST = Path(__file__).with_name(f"claude-agent-acp@{VERSION}.tsv")
 def main():
     if platform.machine() not in ("x86_64", "amd64"):
         raise RuntimeError("this image's pinned ACP installation is linux-x64-glibc")
+    cli = shutil.which("claude")
+    if not cli:
+        raise RuntimeError("the image must provide Claude Code")
+    cli = Path(cli).resolve()
+    version = subprocess.check_output([str(cli), "--version"], text=True,
+                                     env={**os.environ, "DISABLE_AUTOUPDATER": "1"})
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", version.splitlines()[0])
+    if not match or tuple(map(int, match.groups())) < (2, 1, 280):
+        raise RuntimeError("the pinned ACP adapter requires image Claude Code >= 2.1.280")
     DEST.mkdir(parents=True, exist_ok=False)
     for relative, url, integrity, system, cpu, libc in csv.reader(MANIFEST.open(), delimiter="\t"):
         if any(wanted != "-" and value not in wanted.split(",")
                for wanted, value in ((system, "linux"), (cpu, "x64"), (libc, "glibc"))):
+            continue
+        # Fountain's current contract selects the image CLI, never a second
+        # native executable from the SDK's optional platform packages.
+        if relative.startswith("node_modules/@anthropic-ai/claude-agent-sdk-"):
             continue
         target = DEST / relative
         if not relative.startswith("node_modules/") or ".." in Path(relative).parts:
@@ -49,6 +65,7 @@ def main():
     entry = DEST / "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
     entry.chmod(0o755)
     (DEST / ".node").write_text(subprocess.check_output(["node", "-p", "process.execPath"], text=True))
+    (DEST / ".claude-executable").write_text(str(cli) + "\n")
     launcher = DEST / "launch"
     launcher.write_text(f'''#!/bin/sh
 d='{DEST}'

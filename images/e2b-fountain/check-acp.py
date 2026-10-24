@@ -5,6 +5,9 @@ d=Path('/home/sprite/.local/share/managoat/acp/claude-agent-acp@0.81.2')
 assert (d/'.installed').read_text()=='0.81.2'
 assert os.readlink('/home/sprite/.local/bin/claude-agent-acp')==str(d/'launch')
 assert os.access(d/'launch',os.X_OK)
+cli=Path((d/'.claude-executable').read_text().strip())
+assert cli.is_absolute() and os.access(cli,os.X_OK) and not cli.is_relative_to(d)
+assert not list((d/'node_modules/@anthropic-ai').glob('claude-agent-sdk-*'))
 assert os.access((d/'.node').read_text().strip(),os.X_OK)
 assert json.loads((d/'node_modules/@anthropic-ai/claude-agent-sdk/package.json').read_text())['version']=='0.3.280'
 print('Fountain cache check: hit; %.3f ms'%((time.monotonic()-start)*1000),flush=True)

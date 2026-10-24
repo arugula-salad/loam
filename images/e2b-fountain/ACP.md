@@ -1,9 +1,9 @@
 # Fountain's pinned Claude ACP installation
 
 The image installs `@agentclientprotocol/claude-agent-acp@0.81.2` under
-`/home/sprite/.local/share/managoat/acp/claude-agent-acp@0.81.2`, with its full
-linux-x64-glibc dependency tree (Claude SDK 0.3.280 and its executable), `.installed`,
-`.node`, executable `launch`, and the PATH symlink expected by Fountain.
+`/home/sprite/.local/share/managoat/acp/claude-agent-acp@0.81.2`, with its locked
+JavaScript dependency tree (Claude SDK 0.3.280), `.installed`, `.node`,
+`.claude-executable`, executable `launch`, and the PATH symlink expected by Fountain.
 
 The TSV is copied unchanged from `managoat/fountain` at
 `94091d95959841141d235b22df6d2080e13ec7ff`, path
@@ -13,8 +13,9 @@ before extraction. No dependency is resolved from a floating npm range.
 
 The launcher and marker layout follow Fountain's installation contract; both its
 original manifest installer and current bundle installer's cache check accept it.
-The current bundle installer normally reuses the image CLI on a cache miss; this
-preinstall retains the issue's tested SDK binary rather than changing that dependency.
+The installer selects the image's Claude Code executable (minimum 2.1.280), records
+its resolved path, and skips the SDK's optional native CLI packages. This matches
+Fountain's current image-reuse contract and avoids a second CLI in the cache.
 
 When Fountain changes its adapter pin, copy its reviewed manifest, update VERSION
 and the Containerfile filename together, and verify the launch entry against its
