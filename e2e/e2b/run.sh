@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs the official E2B Python and JS SDKs (pinned: requirements.txt, package.json) against
-# loam's E2B adapter (docs/E2B.md, "Conformance"), 13 steps each: create, exec with streaming,
-# exit codes, background processes, stdin and PTY, files, upload/download and signed URLs, a
-# sandbox port, set-timeout, metrics, list, pause/resume and kill; then a sweep for sandboxes
+# loam's E2B adapter (docs/E2B.md, "Conformance"), 14 steps each: create, exec with streaming,
+# exit codes, background processes, stdin and PTY, files, upload/download and signed URLs, public and private
+# sandbox ports, set-timeout, metrics, list, pause/resume and kill; then a sweep for sandboxes
 # the probes left behind. The probes were first written against hosted E2B, and its traces of
 # the same run are what they were checked against.
 #

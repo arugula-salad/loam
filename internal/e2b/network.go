@@ -97,9 +97,6 @@ func egressOf(allowInternet *bool, n *networkReq) ([]api.Rule, error) {
 		if len(n.unknown) > 0 {
 			return nil, fmt.Errorf("network.%s is not supported by this server", strings.Join(n.unknown, ", network."))
 		}
-		if n.AllowPublicTraffic != nil && !*n.AllowPublicTraffic {
-			return nil, fmt.Errorf("network.allowPublicTraffic: false is not supported by this server: a sandbox's ports are public")
-		}
 		for _, d := range n.DenyOut {
 			switch {
 			case d == allTraffic:

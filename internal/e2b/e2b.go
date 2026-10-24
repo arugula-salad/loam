@@ -123,6 +123,7 @@ type Loam interface {
 	// Seal and Open keep envd's access token sealed under loam-api's secret
 	// key, bound to the sandbox's ID; CanSeal is whether there is one.
 	CanSeal() bool
+	TrafficToken(sandbox string) (string, error)
 	Seal(sandbox string, value []byte) ([]byte, error)
 	Open(sandbox string, sealed []byte) ([]byte, error)
 }

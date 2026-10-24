@@ -146,8 +146,7 @@ func (f *Frontend) bySignature(r *http.Request) (string, bool) {
 // sandbox's access token as X-Access-Token, or an unexpired /files signature
 // made with it. envd checks again itself, but only once the sandbox is awake;
 // checking here first means traffic without either can't wake a sleeping
-// sandbox, or keep a running one from pausing. User ports are not checked:
-// they are public, as on hosted E2B.
+// sandbox, or keep a running one from pausing. Private user ports are checked separately in serveSandbox.
 func envdAuthorized(r *http.Request, token string, now time.Time) bool {
 	if tok := r.Header.Get("X-Access-Token"); tok != "" {
 		return subtle.ConstantTimeCompare([]byte(tok), []byte(token)) == 1
@@ -209,6 +208,18 @@ func (f *Frontend) serveSandbox(w http.ResponseWriter, r *http.Request, t target
 	if asleep && !row.AutoResume {
 		sandboxNotFound(w, t.id)
 		return
+	}
+	if t.port != EnvdPort && row.PrivateTraffic {
+		want, err := f.loam.TrafficToken(row.Sandbox)
+		if err != nil {
+			sandboxNotFound(w, t.id)
+			return
+		}
+		got := r.Header.Get("e2b-traffic-access-token")
+		if subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {
+			trafficDenied(w, r, t.id, got == "")
+			return
+		}
 	}
 	envd := t.port == EnvdPort
 	if envd && envdInternal[r.URL.Path] {

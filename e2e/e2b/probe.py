@@ -205,6 +205,27 @@ def port():
     raise AssertionError(f"port 8080 never served: {last}")
 
 
+def private_port():
+    box = Sandbox.create(timeout=120, metadata=META, network={"allow_public_traffic": False})
+    try:
+        check(box.traffic_access_token, "missing traffic token")
+        box.commands.run("mkdir -p /tmp/private-www; echo private-ok > /tmp/private-www/index.html")
+        box.commands.run("cd /tmp/private-www && python3 -m http.server 8080", background=True)
+        host = box.get_host(8080)
+        url = f"{os.environ.get('E2B_PROBE_PORT_SCHEME', 'https')}://{host}/"
+        for token in ("", "wrong"):
+            st, _ = http_get(url, host=host, headers={"e2b-traffic-access-token": token})
+            check(st == 403, f"unauthorized port returned {st}")
+        for _ in range(30):
+            st, data = http_get(url, host=host, headers={"e2b-traffic-access-token": box.traffic_access_token})
+            if st == 200 and data.strip() == b"private-ok":
+                return "missing/wrong token -> 403; SDK token -> 200"
+            time.sleep(1)
+        raise AssertionError("authorized private port never served")
+    finally:
+        box.kill()
+
+
 def set_timeout():
     sbx.set_timeout(600)
     end = sbx.get_info().end_at
@@ -271,7 +292,7 @@ try:
         for name, fn in [("exec_stream", exec_stream), ("exec_exit_code", exec_exit_code),
                          ("background_kill", background), ("stdin_pty", stdin_pty), ("files", files),
                          ("upload_download", upload_download), ("port", port),
-                         ("set_timeout", set_timeout), ("metrics", metrics), ("list", listing),
+                         ("private_port", private_port), ("set_timeout", set_timeout), ("metrics", metrics), ("list", listing),
                          ("pause_resume", pause_resume), ("kill", kill)]:
             step(name, fn)
 finally:

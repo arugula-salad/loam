@@ -2,6 +2,9 @@ package apiserver
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net"
 	"net/http"
@@ -199,4 +202,15 @@ func (s *Server) BootedAt(ctx context.Context, id string) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return *vm.BootedAt, nil
+}
+
+// TrafficToken derives a stable credential for a sandbox's private E2B ports.
+// A separate key keeps traffic authentication apart from secret encryption.
+func (s *Server) TrafficToken(sandbox string) (string, error) {
+	if s.sealer == nil {
+		return "", public(unsupported("this deployment has no secret key"))
+	}
+	mac := hmac.New(sha256.New, s.sealer.trafficKey)
+	mac.Write([]byte(sandbox))
+	return hex.EncodeToString(mac.Sum(nil)), nil
 }
