@@ -199,6 +199,8 @@ func TestIdleRule(t *testing.T) {
 	// idle.action stop stops it; none leaves it running.
 	h.must(200, "PATCH", "/v1/sandboxes/idle", key, map[string]any{"idle": map[string]any{"timeout_s": 60, "action": "stop"}}, nil)
 	h.exec(key, "idle", "echo")
+	// The client can receive the final exec frame before the handler releases its activity hold.
+	eventually(t, "the exec call to end", func() bool { _, ok := h.srv.rt(sb.ID).idleFor(h.clock.Now()); return ok })
 	h.node.SetActivity(sb.ID, idleAgent(120))
 	h.clock.Advance(61e9)
 	h.tick()

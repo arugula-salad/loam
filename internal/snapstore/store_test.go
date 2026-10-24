@@ -218,6 +218,7 @@ func TestMemoryGenerationsRoundTrip(t *testing.T) {
 				t.Fatal("a cold read fetched nothing")
 			}
 			third, _ := New(b, Options{CacheDir: nodeCache})
+			t.Cleanup(func() { third.Close() })
 			f, _ = third.OpenFile(sn.Memory, Memory, "")
 			if !bytes.Equal(readAll(t, f), cur) {
 				t.Fatal("warm read of generation 4 differs")
@@ -512,6 +513,7 @@ func TestChunkDirEviction(t *testing.T) {
 	}
 	// With the chunks gone the file still reads, from the store.
 	s2, _ := New(b, Options{CacheDir: cache})
+	t.Cleanup(func() { s2.Close() })
 	f, _ = s2.OpenFile(h, Memory, "")
 	defer f.Close()
 	if !bytes.Equal(readAll(t, f), want) || s2.Stats().Fetches == 0 {
@@ -549,6 +551,7 @@ func TestCorruptChunkIsRefetched(t *testing.T) {
 	// A corrupt chunk is noticed (a frame is decoded and its CRC checked before any of its bytes
 	// are used), dropped and fetched again.
 	s2, _ := New(b, Options{CacheDir: cache})
+	t.Cleanup(func() { s2.Close() })
 	f, _ = s2.OpenFile(h, Memory, "")
 	defer f.Close()
 	if !bytes.Equal(readAll(t, f), want) || s2.Stats().Fetches == 0 {
