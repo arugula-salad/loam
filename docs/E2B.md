@@ -260,8 +260,7 @@ next fresh boot (or loam-api restart), and until then envd answers without one.
 
 Answered 404 (`Not found: this E2B-compatible server does not implement …`): standalone snapshots and `fork` (`/sandboxes/{id}/fork`,
 `/sandboxes/{id}/snapshots`, `/snapshots`), volumes, sandbox logs and events,
-`GET /sandboxes/metrics`, teams and API key management. Refused at create (above): templates
-other than `base`, `mcp`, `iam`, volumes, egress proxies and transform rules, CIDR rules,
+`GET /sandboxes/metrics`, teams and API key management. Refused at create (above): `mcp`, `iam`, volumes, egress proxies and transform rules, CIDR rules,
 `secure: false`.
 
 ## Differences from hosted E2B

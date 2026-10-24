@@ -115,14 +115,14 @@ func archiveFiles(raw []byte) ([]archiveFile, error) {
 		if name == "" && h.Typeflag == tar.TypeDir && h.Name == "./" {
 			name = "."
 		}
-		if name == "" || path.IsAbs(name) || name == ".." || strings.HasPrefix(path.Clean(name), "../") {
+		if name == "" || path.IsAbs(name) || path.Clean(name) == ".." || strings.HasPrefix(path.Clean(name), "../") {
 			return nil, fmt.Errorf("archive path must be relative")
 		}
 		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeDir {
 			return nil, fmt.Errorf("archive links and special files are not supported")
 		}
 		total += h.Size
-		if h.Size < 0 || total > 256<<20 || len(out) > 10000 {
+		if h.Size < 0 || total > 256<<20 || len(out) >= 10000 {
 			return nil, fmt.Errorf("expanded archive exceeds limits")
 		}
 		data, err := io.ReadAll(tr)
