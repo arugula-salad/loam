@@ -136,6 +136,10 @@ func (f *Frontend) token(row db.E2BSandbox) (string, error) {
 
 // Store is where the adapter keeps its records (db.Store).
 type Store interface {
+	CreateE2BTemplate(context.Context, db.E2BTemplate) error
+	E2BTemplates(context.Context, string) ([]db.E2BTemplate, error)
+	UpdateE2BTemplate(context.Context, string, string, func(*db.E2BTemplate) error) (db.E2BTemplate, error)
+	DeleteE2BTemplate(context.Context, string, string) error
 	CreateE2B(ctx context.Context, e db.E2BSandbox) error
 	E2B(ctx context.Context, sandbox string) (db.E2BSandbox, error)
 	E2Bs(ctx context.Context, project string) ([]db.E2BSandbox, error)

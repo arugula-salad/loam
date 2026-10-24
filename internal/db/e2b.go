@@ -15,7 +15,9 @@ type E2BSandbox struct {
 	Sandbox string
 	Project string
 	// Template is the E2B template it was made from, as E2B names it.
-	Template string
+	Template       string
+	DefaultUser    string
+	DefaultWorkdir string
 	// SealedToken is envd's access token, sealed with loam-api's secret key
 	// and bound to the sandbox's ID (apiserver's Seal): never kept, logged
 	// or shown in the clear by the store.
@@ -97,24 +99,24 @@ func (m *Memory) UpdateE2B(_ context.Context, id string, change func(*E2BSandbox
 	return e, nil
 }
 
-const e2bCols = `sandbox, project, template, sealed_token, timeout_s, started_at, end_at, auto_pause, keep_memory, auto_resume, paused, private_traffic`
+const e2bCols = `sandbox, project, template, sealed_token, timeout_s, started_at, end_at, auto_pause, keep_memory, auto_resume, paused, private_traffic, default_user, default_workdir`
 
 func e2bArgs(e E2BSandbox) []any {
 	return []any{e.Sandbox, e.Project, e.Template, e.SealedToken, e.TimeoutS, e.StartedAt, e.EndAt,
-		e.AutoPause, e.KeepMemory, e.AutoResume, e.Paused, e.PrivateTraffic}
+		e.AutoPause, e.KeepMemory, e.AutoResume, e.Paused, e.PrivateTraffic, e.DefaultUser, e.DefaultWorkdir}
 }
 
 func scanE2B(r pgx.Row) (E2BSandbox, error) {
 	var e E2BSandbox
 	err := r.Scan(&e.Sandbox, &e.Project, &e.Template, &e.SealedToken, &e.TimeoutS, &e.StartedAt, &e.EndAt,
-		&e.AutoPause, &e.KeepMemory, &e.AutoResume, &e.Paused, &e.PrivateTraffic)
+		&e.AutoPause, &e.KeepMemory, &e.AutoResume, &e.Paused, &e.PrivateTraffic, &e.DefaultUser, &e.DefaultWorkdir)
 	e.StartedAt, e.EndAt = e.StartedAt.UTC(), e.EndAt.UTC()
 	return e, err
 }
 
 // CreateE2B is ErrNotFound when the sandbox doesn't exist (the foreign key).
 func (p *Postgres) CreateE2B(ctx context.Context, e E2BSandbox) error {
-	_, err := p.pool.Exec(ctx, `INSERT INTO e2b_sandboxes (`+e2bCols+`) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, e2bArgs(e)...)
+	_, err := p.pool.Exec(ctx, `INSERT INTO e2b_sandboxes (`+e2bCols+`) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`, e2bArgs(e)...)
 	return pgErr(err)
 }
 
@@ -142,7 +144,7 @@ func (p *Postgres) UpdateE2B(ctx context.Context, id string, change func(*E2BSan
 			return err
 		}
 		e.Sandbox = id
-		if _, err := tx.Exec(ctx, `UPDATE e2b_sandboxes SET (`+e2bCols+`) = ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		if _, err := tx.Exec(ctx, `UPDATE e2b_sandboxes SET (`+e2bCols+`) = ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			WHERE sandbox = $1`, e2bArgs(e)...); err != nil {
 			return pgErr(err)
 		}
