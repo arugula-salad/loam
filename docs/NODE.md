@@ -339,3 +339,13 @@ and select only the most specific matching domain. An unavailable rule refuses i
 requests. The nodelet validates header names, domains and values independently.
 Adding/removing interception closes existing proxied connections whose broker route
 changes; existing brokered connections read the current policy for every request.
+
+## Guest firewall support
+
+The shipped x86_64 guest kernel includes nftables inet filtering and UID-based
+loopback rules (`meta skuid`), including TCP-reset rejection, plus iptables owner
+matching. These are built in, independent of guest modules. Guest root controls
+these rules; the nodelet's external network policy still applies. Kernel sources,
+configuration provenance and validation are recorded in `images/nodelet/KERNEL.md`.
+A fresh boot uses the new kernel after a nodelet rollout; a memory resume keeps
+its snapshotted kernel. Rebuild running templates when upgrading kernel features.

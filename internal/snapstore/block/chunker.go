@@ -141,23 +141,29 @@ func (c *Chunker) fetch(ctx context.Context, off, length int64, up Upstream, ft 
 func (c *Chunker) runFetch(ctx context.Context, s *fetchSession, up Upstream, ft *header.FrameTable) {
 	ctx, cancel := context.WithTimeout(ctx, c.fetchTimeout)
 	defer cancel()
-	defer c.releaseSession(s)
-	// Terminate the session on every exit so registerAndWait never blocks forever.
+	var fetchErr error
+	// Remove a failed session before notifying its waiters. Otherwise a caller
+	// can observe the error and immediately retry into the same failed session.
+	// The mapping release registered below runs first, before another fetch
+	// can begin writing this chunk.
 	defer func() {
 		if r := recover(); r != nil {
-			s.failIfRunning(fmt.Errorf("fetch panicked: %v", r))
-			return
+			fetchErr = fmt.Errorf("fetch panicked: %v", r)
 		}
-		s.failIfRunning(errors.New("fetch exited without completing"))
+		c.releaseSession(s)
+		if fetchErr == nil {
+			fetchErr = errors.New("fetch exited without completing")
+		}
+		s.failIfRunning(fetchErr)
 	}()
 	mmapSlice, release, err := c.cache.addressBytes(s.chunkOff, s.chunkLen)
 	if err != nil {
-		s.fail(err)
+		fetchErr = err
 		return
 	}
 	defer release()
 	if err := c.progressiveFetch(ctx, s, mmapSlice, up, ft); err != nil {
-		s.fail(err)
+		fetchErr = err
 		return
 	}
 	// Mark the chunk cached before releasing waiters, so isCached is true before the session

@@ -223,3 +223,8 @@ compressed per archive, 256 MiB expanded, and 256 MiB retained per template.
 Transient database failures trigger retries of failed-build status and sandbox
 cleanup. Upgrading from inline upload storage clears only the upload cache; the
 SDK reuploads missing archives, while completed templates remain usable.
+
+The guest kernel supports nftables UID-based loopback filtering, including inet
+`meta skuid` rules with TCP-reset rejection. Install the `nft` userspace tool in
+custom images and apply rules as root. After a kernel upgrade, rebuild running
+templates: existing memory snapshots retain their old kernel.

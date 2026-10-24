@@ -27,6 +27,28 @@ COPY pkg ./pkg
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/loam-nodelet ./cmd/loam-nodelet
 
+# Build the guest kernel from verified upstream sources. Firewall features are
+# built in: guests do not need a matching module tree in their root filesystem.
+FROM debian:trixie-slim AS kernel
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential flex bison libelf-dev libssl-dev bc \
+    && rm -rf /var/lib/apt/lists/*
+ARG KERNEL_VERSION=6.1.155
+ARG KERNEL_SOURCE_SHA256=c29387aeee085fbcbd91236224b9df805063bac43615e75cea2c6b29604a5c73
+RUN curl -fsSLo /tmp/linux.tar.xz "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz" \
+    && echo "${KERNEL_SOURCE_SHA256}  /tmp/linux.tar.xz" | sha256sum -c - \
+    && mkdir /linux && tar -xJf /tmp/linux.tar.xz -C /linux --strip-components=1 && rm /tmp/linux.tar.xz
+WORKDIR /linux
+COPY images/nodelet/kernel.config .config
+RUN scripts/config --enable IKCONFIG --enable IKCONFIG_PROC --enable MSDOS_PARTITION \
+    --enable NETFILTER_ADVANCED --enable NF_TABLES --enable NF_TABLES_INET \
+    --enable NF_TABLES_IPV4 --enable NF_TABLES_IPV6 --enable NFT_REJECT --enable NFT_REJECT_INET \
+    --enable NFT_REJECT_IPV4 --enable NFT_REJECT_IPV6 --enable NFT_COUNTER \
+    --enable NETFILTER_XT_MATCH_OWNER \
+    && make olddefconfig \
+    && for option in NF_TABLES NF_TABLES_INET NFT_REJECT NFT_REJECT_INET NETFILTER_XT_MATCH_OWNER; do grep -qx "CONFIG_${option}=y" .config; done
+ARG KERNEL_JOBS=4
+RUN make -j"${KERNEL_JOBS}" vmlinux && strip --strip-debug vmlinux
+
 FROM debian:trixie-slim AS fetch
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
@@ -34,23 +56,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 # firecracker-<version>-x86_64.tgz.sha256.txt.
 ARG FC_VERSION=v1.17.0
 ARG FC_SHA256=06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558
-# The guest kernel: Firecracker's CI kernel, published with its CI artifacts
-# rather than its releases.
-ARG KERNEL_URL=https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/x86_64/vmlinux-6.1.155
-ARG KERNEL_SHA256=e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2
 RUN mkdir /out && cd /tmp \
     && curl -fsSLo fc.tgz "https://github.com/firecracker-microvm/firecracker/releases/download/${FC_VERSION}/firecracker-${FC_VERSION}-x86_64.tgz" \
     && echo "${FC_SHA256}  fc.tgz" | sha256sum -c - \
     && tar -xzf fc.tgz \
-    && install -m 0755 "release-${FC_VERSION}-x86_64/firecracker-${FC_VERSION}-x86_64" /out/firecracker \
-    && curl -fsSLo /out/vmlinux "${KERNEL_URL}" \
-    && echo "${KERNEL_SHA256}  /out/vmlinux" | sha256sum -c -
+    && install -m 0755 "release-${FC_VERSION}-x86_64/firecracker-${FC_VERSION}-x86_64" /out/firecracker
 
 FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables e2fsprogs libarchive13t64 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=fetch /out/firecracker /usr/local/bin/firecracker
-COPY --from=fetch /out/vmlinux /usr/share/loam/vmlinux
+COPY --from=kernel /linux/vmlinux /usr/share/loam/vmlinux
 ARG INITRAMFS=dist/initramfs.cpio.gz
 COPY ${INITRAMFS} /usr/share/loam/initramfs.cpio.gz
 COPY --from=build /out/loam-nodelet /usr/local/bin/loam-nodelet

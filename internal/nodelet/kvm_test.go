@@ -297,6 +297,43 @@ func TestKVM(t *testing.T) {
 	write("sb-kvm1", "/run/mem-marker", "in memory") // /run is a tmpfs in the guest
 	write("sb-kvm1", "/root/disk-marker", "on disk")
 
+	t.Run("guest uid firewall", func(t *testing.T) {
+		code, out := run("sb-kvm1", "python3", "-c", `import errno, os, socket, subprocess, sys
+sockets = []
+for family, host in [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")]:
+    for port in [881, 1881]:
+        s = socket.socket(family)
+        if family == socket.AF_INET6: s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        s.bind((host, port)); s.listen(16); sockets.append(s)
+rule = 'table inet loam_uid_test { chain out { type filter hook output priority 0; policy accept; oif "lo" meta skuid 1002 meta l4proto tcp tcp dport { 1-1023 } reject with tcp reset; }; }\n'
+subprocess.run(["nft", "-f", "-"], input=rule, text=True, check=True)
+def probe(uid, host, port, blocked):
+    child = os.fork()
+    if child == 0:
+        os.setgid(uid); os.setuid(uid)
+        try:
+            s = socket.create_connection((host, port), 2); s.close()
+            os._exit(1 if blocked else 0)
+        except OSError as e:
+            os._exit(0 if blocked and e.errno == errno.ECONNREFUSED else 1)
+    _, status = os.waitpid(child, 0)
+    assert os.waitstatus_to_exitcode(status) == 0, (uid, host, port, blocked)
+try:
+    for host in ["127.0.0.1", "::1"]:
+        probe(1002, host, 881, True)
+        probe(1000, host, 881, False)
+        probe(1002, host, 1881, False)
+finally:
+    subprocess.run(["nft", "delete", "table", "inet", "loam_uid_test"], check=True)
+for host in ["127.0.0.1", "::1"]: probe(1002, host, 881, False)
+print("uid firewall: IPv4/IPv6 rejection, other users/ports, and removal passed")
+`)
+		if code != 0 {
+			t.Fatalf("guest uid firewall: %d %s", code, out)
+		}
+		t.Log(out)
+	})
+
 	t.Run("network", func(t *testing.T) {
 		reach := func(host, port string) bool {
 			code, _ := run("sb-kvm1", "timeout", "5", "bash", "-c", "exec 3<>/dev/tcp/"+host+"/"+port)

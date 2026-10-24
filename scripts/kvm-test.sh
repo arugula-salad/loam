@@ -33,8 +33,14 @@ if [ -z "${LOAM_KVM_IMAGE:-}" ]; then
   if ! docker image inspect loam-guest:dev >/dev/null 2>&1; then
     docker build -t loam-guest:dev -f images/guest/Containerfile images/guest
   fi
+  # Firewall userspace is a test dependency, not a change to the production
+  # guest image. Keep it in an isolated derived image used only by this suite.
+  docker build -q -t loam-guest:kvm-test - <<'EOF'
+FROM loam-guest:dev
+RUN apt-get update && apt-get install -y --no-install-recommends nftables && rm -rf /var/lib/apt/lists/*
+EOF
   mkdir -p dist/dev
-  docker save loam-guest:dev -o dist/dev/guest.tar
+  docker save loam-guest:kvm-test -o dist/dev/guest.tar
   args+=(-v "$PWD/dist/dev/guest.tar:/guest.tar:ro" -e LOAM_KVM_IMAGE_TAR=/guest.tar)
 else
   args+=(-e LOAM_KVM_IMAGE="$LOAM_KVM_IMAGE")
