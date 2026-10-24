@@ -100,6 +100,7 @@ type hostSystem struct{}
 var errHost = fmt.Errorf("not in a VM")
 
 func (hostSystem) SetClock(time.Time) error                    { return errHost }
+func (hostSystem) SetSandboxID(string) error                   { return errHost }
 func (hostSystem) SetHostname(string) error                    { return errHost }
 func (hostSystem) ConfigureNetwork(*nodeapi.WakeNetwork) error { return errHost }
 func (hostSystem) DropCaches()                                 {}

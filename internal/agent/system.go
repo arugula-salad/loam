@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -132,4 +133,34 @@ func LoopbackUp() error {
 		return err
 	}
 	return linkSet(lo.Index, true, nil)
+}
+
+// SetSandboxID replaces the E2B identity file on every wake. Processes restored
+// from a snapshot retain their old environment, so they read this file instead.
+func (guestSystem) SetSandboxID(id string) error {
+	return writeSandboxID("/run/e2b", id)
+}
+
+func writeSandboxID(dir, id string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(dir, ".sandbox-id-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if _, err = file.WriteString(id); err != nil {
+		file.Close()
+		return err
+	}
+	if err = file.Chmod(0o644); err != nil {
+		file.Close()
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	// Atomic replacement prevents a reader from observing an empty or partial ID.
+	return os.Rename(file.Name(), filepath.Join(dir, ".E2B_SANDBOX_ID"))
 }

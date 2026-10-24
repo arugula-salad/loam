@@ -29,7 +29,7 @@ The nodelet calls these; loam-api never forwards anything under `/internal/` to 
 
 | Route | |
 |---|---|
-| `POST /internal/wake` | `Wake` (`docs/NODE.md`). At every boot and every resume, before the VM is reported running. Sets the clock (a resumed guest's clock is stale), hostname, `eth0` from `network` when given, the env every new process gets, the default user, the broker CA from `ca` (below); then starts services on a fresh boot, or tells running sessions nothing on a resume. Answers 204 once done. The wake is kept in `/run/loam/wake.json` (tmpfs), so a server process that PID 1 restarts takes it up again. |
+| `POST /internal/wake` | `Wake` (`docs/NODE.md`). At every boot and every resume, before the VM is reported running. Sets the clock (a resumed guest's clock is stale), hostname, the sandbox ID in `/run/e2b/.E2B_SANDBOX_ID`, `eth0` from `network` when given, the env every new process gets, the default user, the broker CA from `ca` (below); then starts services on a fresh boot, or tells running sessions nothing on a resume. Answers 204 once done. The wake is kept in `/run/loam/wake.json` (tmpfs), so a server process that PID 1 restarts takes it up again. |
 | `POST /internal/presuspend` | Before a pause or a memory snapshot. Runs the executables in `/var/lib/loam/hooks/presuspend.d` in name order, as root, 5 s for all of them together; then syncs and drops the page cache (`drop_caches`, `compact_memory`) so the balloon can reclaim it. 204. |
 | `POST /internal/sync` | `sync` all filesystems; before a disk-only snapshot. 204. |
 | `GET /internal/activity` | → `Activity`: `{"idle_ms": N, "sessions_attached": N, "tasks": N, "busy": bool}`. `idle_ms` is since the last byte in or out of an exec session, a file operation, a port stream or the last wake, on the monotonic clock (time paused doesn't count). A live task (`docs/API.md`, "Tasks") makes `busy` true; nothing else does. |
@@ -134,3 +134,12 @@ checkpoint mounts and the network policy file (phase 3 enforces policy outside t
 the privileges policy (capability bounding, `no_new_privs`, the workload memory cgroup), the
 in-guest `sprite-env` CLI and its setuid sudo stand-in (the guest image has a real sudo), system
 services declared by the image, lease-expiry hooks, and service event reports to the host.
+
+## Sandbox identity file
+
+Every wake with a sandbox ID atomically replaces `/run/e2b/.E2B_SANDBOX_ID` with
+that ID (no newline, mode 0644), before starting services or reporting the VM running.
+This includes fresh creates, resumes, restores and forks, so a process restored from
+another sandbox's memory can discover its new identity without relying on inherited
+environment variables. Readers should reopen the file; watchers should watch its parent
+directory because replacement changes the inode. Failure to write the identity fails the wake.
