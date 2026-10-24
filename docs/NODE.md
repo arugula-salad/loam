@@ -327,3 +327,15 @@ guest sent.
   `CAP_SYS_ADMIN` in a private cgroup namespace, which an unprivileged pod has neither of. Without
   that, the nodelet says so in its log at start and the VMs share the pod's cgroup, bounded only by
   the pod's limits; admission still holds them to `--memory`.
+
+
+### Resolved request headers
+
+`Policy.request_headers` carries `{domain, headers, unavailable?}` rules resolved by
+loam-api. `Policy.sensitive` carries the referenced secret values for the broker's
+response reflection guard. Both remain in nodelet memory; neither reaches the agent
+or stored VM snapshots. Rules require the broker CA, do not add egress allowances,
+and select only the most specific matching domain. An unavailable rule refuses its
+requests. The nodelet validates header names, domains and values independently.
+Adding/removing interception closes existing proxied connections whose broker route
+changes; existing brokered connections read the current policy for every request.

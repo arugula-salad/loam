@@ -18,7 +18,7 @@ func (n *Nodelet) compilePolicy(p nodeapi.Policy) (*network.Policy, error) {
 	if err != nil {
 		return nil, invalid("policy: %v", err)
 	}
-	if len(pol.Secrets()) > 0 && !n.broker() {
+	if pol.NeedsBroker() && !n.broker() {
 		return nil, errorf(http.StatusNotImplemented, api.CodeUnsupported, "node %s has no broker CA, so it can't run a VM with secrets", n.opts.NodeName)
 	}
 	return pol, nil

@@ -153,6 +153,7 @@ type handler struct {
 // brokered is what a request carries from ServeHTTP to the reverse proxy's
 // hooks: the secrets it uses, and the values the answer is searched for.
 type brokered struct {
+	headers map[string]string
 	secrets []network.Secret
 	target  string
 	needles [][]byte
@@ -198,7 +199,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(sw, http.StatusBadGateway, why)
 		return
 	}
-	bk := &brokered{secrets: secrets, target: target, needles: needles(pol.Secrets())}
+	headers, _ := pol.HeadersFor(h.name)
+	if headers.Unavailable {
+		refuse(sw, http.StatusBadGateway, "a request header secret is unavailable")
+		return
+	}
+	bk := &brokered{secrets: secrets, headers: headers.Headers, target: target, needles: needles(pol.ScanSecrets())}
 	rp := &httputil.ReverseProxy{
 		Rewrite:        h.rewrite,
 		Transport:      h.b.transport,
@@ -224,6 +230,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *handler) rewrite(pr *httputil.ProxyRequest) {
 	bk := pr.In.Context().Value(brokeredKey{}).(*brokered)
 	target := rewrite(bk.secrets, bk.target, pr.Out.Header)
+	for k, v := range bk.headers {
+		pr.Out.Header.Set(k, v)
+	}
 	u := &url.URL{Scheme: "https", Host: h.name}
 	if path, query, ok := strings.Cut(target, "?"); strings.HasPrefix(path, "//") {
 		// Opaque would be read as an authority; the absolute form says the same.

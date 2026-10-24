@@ -103,9 +103,17 @@ type CreateVM struct {
 // Policy is what a VM may reach and the secrets it uses (docs/NODE.md,
 // "Phase 3: the network boundary"). The nodelet holds it in memory, only
 // while the VM runs. Egress has its includes expanded by loam-api.
+type HeaderRule struct {
+	Domain      string            `json:"domain"`
+	Headers     map[string]string `json:"headers"`
+	Unavailable bool              `json:"unavailable,omitempty"`
+}
+
 type Policy struct {
-	Egress  []api.Rule     `json:"egress"`
-	Secrets []PolicySecret `json:"secrets"`
+	RequestHeaders []HeaderRule   `json:"request_headers,omitempty"`
+	Sensitive      []string       `json:"sensitive,omitempty"`
+	Egress         []api.Rule     `json:"egress"`
+	Secrets        []PolicySecret `json:"secrets"`
 }
 
 // PolicySecret is a secret with its value, which only the nodelet's proxy

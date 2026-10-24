@@ -444,6 +444,26 @@ func TestKVM(t *testing.T) {
 		}
 	})
 
+	t.Run("egress header rules", func(t *testing.T) {
+		pol := nodeapi.Policy{RequestHeaders: []nodeapi.HeaderRule{{Domain: "postman-echo.com", Headers: map[string]string{"X-Loam-Transform": "loam-header-test-715"}}}}
+		if err := cl.SetPolicy(ctx, "sb-kvm1", pol); err != nil {
+			t.Fatal(err)
+		}
+		defer cl.SetPolicy(ctx, "sb-kvm1", nodeapi.Policy{})
+		code, out := run("sb-kvm1", "timeout", "20", "curl", "-sS", "-H", "X-Loam-Transform: guest-value", "https://postman-echo.com/headers")
+		if code != 0 || !strings.Contains(out, "loam-header-test-715") || strings.Contains(out, "guest-value") {
+			t.Fatalf("header transform: %d %s", code, out)
+		}
+		pol.Sensitive = []string{"loam-header-test-715"}
+		if err := cl.SetPolicy(ctx, "sb-kvm1", pol); err != nil {
+			t.Fatal(err)
+		}
+		code, out = run("sb-kvm1", "timeout", "20", "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "https://postman-echo.com/headers")
+		if code != 0 || out != "502" {
+			t.Fatalf("transformed secret reflection: %d %q", code, out)
+		}
+	})
+
 	t.Run("host channel", func(t *testing.T) {
 		// A process in the guest asks for its sandbox through the agent's API
 		// socket, which goes out the host channel to "loam-api".

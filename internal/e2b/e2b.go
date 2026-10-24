@@ -115,6 +115,7 @@ func (f *Frontend) defaultsOf(name string) (user, workdir string) {
 // this process, and the few things a front end can't do over it (the
 // apiserver's frontend.go).
 type Loam interface {
+	RefreshE2BSecrets(context.Context, string) error
 	http.Handler
 	AsProject(ctx context.Context, project string) (context.Context, error)
 	ProjectOfKey(ctx context.Context, key string) (string, error)
@@ -140,6 +141,9 @@ type Store interface {
 	E2BTemplates(context.Context, string) ([]db.E2BTemplate, error)
 	UpdateE2BTemplate(context.Context, string, string, func(*db.E2BTemplate) error) (db.E2BTemplate, error)
 	DeleteE2BTemplate(context.Context, string, string) error
+	E2BSecrets(context.Context, string) ([]db.E2BSecret, error)
+	PutE2BSecret(context.Context, db.E2BSecret, bool) (db.E2BSecret, error)
+	DeleteE2BSecret(context.Context, string, string) error
 	CreateE2B(ctx context.Context, e db.E2BSandbox) error
 	E2B(ctx context.Context, sandbox string) (db.E2BSandbox, error)
 	E2Bs(ctx context.Context, project string) ([]db.E2BSandbox, error)

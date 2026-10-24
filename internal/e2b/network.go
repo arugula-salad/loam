@@ -1,9 +1,13 @@
 package e2b
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/arugula-salad/loam/internal/netpolicy"
 	"net"
+	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/arugula-salad/loam/pkg/api"
@@ -36,9 +40,10 @@ const allTraffic = "0.0.0.0/0"
 // networkReq is E2B's network options (SandboxNetworkConfig), the parts this
 // adapter knows; anything else in it that isn't null is refused (unknown).
 type networkReq struct {
-	AllowOut           []string `json:"allowOut"`
-	DenyOut            []string `json:"denyOut"`
-	AllowPublicTraffic *bool    `json:"allowPublicTraffic"`
+	Rules              map[string][]headerTransform `json:"rules"`
+	AllowOut           []string                     `json:"allowOut"`
+	DenyOut            []string                     `json:"denyOut"`
+	AllowPublicTraffic *bool                        `json:"allowPublicTraffic"`
 
 	unknown []string
 }
@@ -52,7 +57,7 @@ func (n *networkReq) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &all); err != nil {
 		return err
 	}
-	n.unknown = unknownFields(all, "allowOut", "denyOut", "allowPublicTraffic")
+	n.unknown = unknownFields(all, "allowOut", "denyOut", "allowPublicTraffic", "rules")
 	return nil
 }
 
@@ -139,4 +144,36 @@ func egressOf(allowInternet *bool, n *networkReq) ([]api.Rule, error) {
 		rules = append(rules, api.Rule{Domain: a, Action: api.RuleAllow})
 	}
 	return rules, nil
+}
+
+// The E2B rules array is applied in order within a single domain; the last
+// assignment of a header wins. Domain selection happens in the broker.
+type headerTransform struct {
+	Transform struct {
+		Headers map[string]string `json:"headers"`
+	} `json:"transform"`
+}
+
+func (t *headerTransform) UnmarshalJSON(b []byte) error {
+	type plain headerTransform
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	return dec.Decode((*plain)(t))
+}
+func headersOf(n *networkReq) ([]api.HeaderRule, error) {
+	if n == nil {
+		return nil, nil
+	}
+	out := []api.HeaderRule{}
+	for domain, rules := range n.Rules {
+		r := api.HeaderRule{Domain: strings.ToLower(domain), Headers: map[string]string{}}
+		for _, rule := range rules {
+			for k, v := range rule.Transform.Headers {
+				r.Headers[http.CanonicalHeaderKey(k)] = v
+			}
+		}
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Domain < out[j].Domain })
+	return out, netpolicy.ValidateHeaders(out)
 }

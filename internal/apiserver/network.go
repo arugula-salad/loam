@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"strings"
 
 	"github.com/arugula-salad/loam/internal/db"
 	"github.com/arugula-salad/loam/internal/netpolicy"
@@ -24,6 +25,9 @@ import (
 // checked as given (at most netpolicy.MaxRules) and expanded too, as the
 // nodelet gets it, so that an include can't take it over the limit there.
 func checkNetwork(n api.Network) error {
+	if err := netpolicy.ValidateHeaders(n.RequestHeaders); err != nil {
+		return invalid("network.request_headers: %v", err)
+	}
 	if err := netpolicy.Validate(n.Egress); err != nil {
 		return invalid("network.egress: %v", err)
 	}
@@ -85,6 +89,37 @@ func (s *Server) policyOf(ctx context.Context, sb db.Sandbox) (nodeapi.Policy, e
 		}
 		pol.Secrets = append(pol.Secrets, nodeapi.PolicySecret{Name: name, Value: string(value), Hosts: rec.Hosts,
 			Placeholder: rec.Placeholder, Inject: rec.Inject})
+	}
+	if len(sb.Network.RequestHeaders) > 0 {
+		records, err := s.store.E2BSecrets(ctx, sb.Project)
+		if err != nil {
+			return pol, err
+		}
+		byName := map[string]db.E2BSecret{}
+		for _, r := range records {
+			byName[r.Name] = r
+		}
+		for _, r := range sb.Network.RequestHeaders {
+			out := nodeapi.HeaderRule{Domain: strings.ToLower(r.Domain), Headers: map[string]string{}}
+			for name, format := range r.Headers {
+				out.Headers[name] = netpolicy.SecretReference.ReplaceAllStringFunc(format, func(ref string) string {
+					name := netpolicy.SecretReference.FindStringSubmatch(ref)[1]
+					rec, ok := byName[name]
+					if !ok || s.sealer == nil {
+						out.Unavailable = true
+						return ""
+					}
+					value, err := s.Open("e2b-secret:"+sb.Project+":"+rec.ID, rec.Sealed)
+					if err != nil {
+						out.Unavailable = true
+						return ""
+					}
+					pol.Sensitive = append(pol.Sensitive, string(value))
+					return string(value)
+				})
+			}
+			pol.RequestHeaders = append(pol.RequestHeaders, out)
+		}
 	}
 	return pol, nil
 }
@@ -167,11 +202,13 @@ func policyErr(err error) *apiErr {
 
 // canRun says whether the node can run sb: one with secrets needs a node
 // with the broker CA.
-func (nd NodeInfo) canRun(sb db.Sandbox) bool { return len(sb.Secrets) == 0 || nd.Broker }
+func (nd NodeInfo) canRun(sb db.Sandbox) bool {
+	return len(sb.Secrets) == 0 && len(sb.Network.RequestHeaders) == 0 || nd.Broker
+}
 
 // runnable keeps the nodes that can run sb.
 func runnable(nodes []NodeInfo, sb db.Sandbox) []NodeInfo {
-	if len(sb.Secrets) == 0 {
+	if len(sb.Secrets) == 0 && len(sb.Network.RequestHeaders) == 0 {
 		return nodes
 	}
 	var out []NodeInfo
@@ -187,7 +224,7 @@ func runnable(nodes []NodeInfo, sb db.Sandbox) []NodeInfo {
 // node that answers) has the broker CA: no node could run it, now or after a
 // wait, which capacity would promise.
 func checkBrokers(nodes []NodeInfo, sb db.Sandbox) error {
-	if len(sb.Secrets) > 0 && len(runnable(nodes, sb)) == 0 {
+	if (len(sb.Secrets) > 0 || len(sb.Network.RequestHeaders) > 0) && len(runnable(nodes, sb)) == 0 {
 		return unsupported("no node has the broker CA, so none can run a sandbox with secrets")
 	}
 	return nil

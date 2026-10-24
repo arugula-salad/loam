@@ -95,7 +95,7 @@ call's not-found (`false` for kill), 429 `RateLimitError` (retried after an inte
 | `POST /sandboxes/{id}/pause` | `{}` → 204: loam's pause, a memory snapshot; `{"memory": false}`: loam's stop, the disk only. The deadline is cleared first, then the record marked paused (`endAt` the pause time), then the VM paused, so a timeout can't kill it mid-pause and traffic arriving meanwhile is refused rather than waking it. A failed pause undoes both. 409 `Error pausing sandbox - sandbox '<id>' is already paused`. |
 | `POST /v2/sandboxes/{id}/connect`, `POST /sandboxes/{id}/connect` | `{"timeout"?}` (default 300 s). Paused: loam's wake, envd's `/init` if the wake was a fresh boot, `startedAt` now, `endAt` now + timeout → 201 `Sandbox`. Running: the timeout only extended → 200. |
 | `POST /sandboxes/{id}/resume` | Deprecated connect (default 15 s), 409 on a running sandbox. |
-| `PUT /sandboxes/{id}/network` | `{"allow_internet_access"?, "allowOut"?, "denyOut"?}` → 204: the sandbox's egress rules replaced, as at create; loam applies them at once to a running sandbox, closing what they no longer allow. |
+| `PUT /sandboxes/{id}/network` | `{"allow_internet_access"?, "allowOut"?, "denyOut"?, "rules"?}` → 204: the sandbox's egress rules replaced, as at create; loam applies them at once to a running sandbox, closing what they no longer allow. |
 | `GET /sandboxes/{id}/metrics` | `[SandboxMetric]`: one sample, envd's own `/metrics`, for a sandbox awake in loam; `[]` otherwise (asking doesn't wake it). `start` and `end` are ignored: there is no history. |
 | `GET /v2/sandboxes` | `[ListedSandbox]` (no token, no lifecycle), the project's E2B sandboxes in `state` (`running,paused` by default), filtered by `metadata` (`k=v&k2=v2`, URL-encoded, exact), `template`, `startedAfter`; newest first or `order=asc`; pages of `limit` (1 to 100), the next page's cursor in `X-Next-Token`; `X-Total-Running` when running ones are asked for. |
 | `GET /sandboxes` | Deprecated list: running only, unpaged. |
@@ -103,8 +103,8 @@ call's not-found (`false` for kill), 429 `RateLimitError` (retried after an inte
 
 **Create's options.** Honoured: `templateID`, `timeout`, `metadata`, `envVars`, `autoPause`,
 `autoPauseMemory`, `autoResume`, `secure: true`, `allow_internet_access`, `network.allowOut`,
-`network.denyOut`, `network.allowPublicTraffic`. Any other field that isn't null is a 400
-naming it (`mcp`, `iam`, `volumeMounts`, `network.rules`, `network.egressProxy`, …), as are
+`network.denyOut`, `network.allowPublicTraffic`, `network.rules`. Any other field that isn't null is a 400
+naming it (`mcp`, `iam`, `volumeMounts`, `network.egressProxy`, …), as are
 `secure: false` (every sandbox here has an access token), and
 the SDKs' own constraints (`autoResume` or `autoPauseMemory` without `autoPause`, `autoResume`
 with `autoPauseMemory: false`). An unknown template is 404 `template '<name>' not found`, as hosted.
@@ -260,8 +260,8 @@ next fresh boot (or loam-api restart), and until then envd answers without one.
 
 Answered 404 (`Not found: this E2B-compatible server does not implement …`): standalone snapshots and `fork` (`/sandboxes/{id}/fork`,
 `/sandboxes/{id}/snapshots`, `/snapshots`), volumes, sandbox logs and events,
-`GET /sandboxes/metrics`, teams and API key management. Refused at create (above): `mcp`, `iam`, volumes, egress proxies and transform rules, CIDR rules,
-`secure: false`.
+`GET /sandboxes/metrics`, teams and API key management. Refused at create (above):
+`mcp`, `iam`, volumes, egress proxies, CIDR rules, and `secure: false`.
 
 ## Differences from hosted E2B
 
@@ -397,3 +397,32 @@ never move tags. `GET /templates/{templateID}` returns build metadata;
 `GET /templates/aliases/{alias}`. All records and uploads are scoped to the project.
 Deleting `/templates/{templateID}` removes its retained source sandboxes and build
 metadata; it refuses while a build is running. Existing forked sandboxes survive.
+
+## Egress header rules and secrets
+
+The official SDK's `Secret.create`, `update`, `getInfo`, `list`, `exists`, and
+`destroy` use `/secrets` and `/secrets/{id-or-name}`. Values are write-only, encrypted
+under `LOAM_SECRET_KEY` and bound to the project and secret ID. Metadata responses
+contain `secretID`, `name`, `currentVersion`, `metadata`, `createdAt`, and `updatedAt`.
+Updates increment the version; old values are not retained. Listing supports `limit`
+(1–100) and `nextToken` with `X-Next-Token`. Names are 1–256 bytes without braces or
+control characters. Values are 1–8192 bytes without CR, LF, or NUL.
+
+Create and `PUT /sandboxes/{id}/network` accept `rules` keyed by DNS domain, with an
+array of `{transform: {headers: {name: value}}}`. Values can be literal or interpolate
+`${e2b.secrets.NAME}` (the SDK's `Secret.fill`). An exact domain wins over a wildcard;
+a narrower wildcard wins over a broader one. Only the selected domain's rules apply,
+in array order, with the last assignment to a header winning. An empty exact rule
+therefore masks a wildcard. Domains can start with `*.`; that wildcard does not match
+the root domain. IPs, path matches, and routing/framing headers are refused.
+
+Transforms operate at the TLS broker on HTTPS port 443. They do not grant network
+access: `allowOut`, `denyOut`, and `allow_internet_access` still decide reachability.
+Raw values are sent only to the nodelet's broker, never guest environment or API
+responses. The broker overrides the guest's header and cuts responses that reflect
+secret values, as for native loam secrets. Unknown, deleted, or undecryptable secret
+references refuse matching requests with 502 rather than sending incomplete headers.
+An awake sandbox receives rotations/deletions immediately; asleep ones resolve the
+current value at wake. If an awake node cannot confirm the update, the write returns
+503 after storing it; retry the update to refresh that node. This requires a nodelet
+with a broker CA. IAM/workload-token transforms remain unsupported.

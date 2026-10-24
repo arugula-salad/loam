@@ -30,6 +30,7 @@ import (
 func (f *Frontend) controlPlane() http.Handler {
 	mux := http.NewServeMux()
 	f.templateRoutes(mux)
+	f.secretRoutes(mux)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.WriteString(w, "Health check successful")
@@ -412,6 +413,11 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, project string
 		writeErr(w, http.StatusBadRequest, "autoResume can't be enabled with autoPauseMemory false")
 		return
 	}
+	headers, err := headersOf(req.Network)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	rules, err := egressOf(req.AllowInternetAccess, req.Network)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -439,8 +445,8 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, project string
 	// timeout, and then die (or pause, with autoPause).
 	create := api.CreateSandbox{Template: loamTmpl, From: from, Env: req.EnvVars, Labels: labels,
 		Idle: &api.Idle{Action: api.ActionNone}, Deadline: &api.Deadline{At: row.EndAt, Action: deadlineAction(row)}}
-	if rules != nil {
-		create.Network = &api.Network{Egress: rules}
+	if rules != nil || len(headers) > 0 {
+		create.Network = &api.Network{Egress: rules, RequestHeaders: headers}
 	}
 	var sb api.Sandbox
 	if err := f.call(r.Context(), project, http.MethodPost, "/v1/sandboxes", create, &sb); err != nil {
@@ -764,7 +770,7 @@ func (f *Frontend) updateNetwork(w http.ResponseWriter, r *http.Request, project
 			if raw, ok := all["allow_internet_access"]; ok {
 				err = json.Unmarshal(raw, &req.AllowInternetAccess)
 			}
-			req.unknown = unknownFields(all, "allowOut", "denyOut", "allow_internet_access", "allowPublicTraffic")
+			req.unknown = unknownFields(all, "allowOut", "denyOut", "allow_internet_access", "allowPublicTraffic", "rules")
 		}
 	}
 	if err != nil {
@@ -773,6 +779,11 @@ func (f *Frontend) updateNetwork(w http.ResponseWriter, r *http.Request, project
 	}
 	if req.AllowPublicTraffic != nil && *req.AllowPublicTraffic == row.PrivateTraffic {
 		writeErr(w, http.StatusBadRequest, "network.allowPublicTraffic is set at create and can't be changed")
+		return
+	}
+	headers, err := headersOf(&req.networkReq)
+	if err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	rules, err := egressOf(req.AllowInternetAccess, &req.networkReq)
@@ -784,7 +795,7 @@ func (f *Frontend) updateNetwork(w http.ResponseWriter, r *http.Request, project
 		rules = []api.Rule{}
 	}
 	defer lock(&f.locks, row.Sandbox)()
-	patch := map[string]any{"network": api.Network{Egress: rules}}
+	patch := map[string]any{"network": api.Network{Egress: rules, RequestHeaders: headers}}
 	if err := f.call(r.Context(), project, http.MethodPatch, "/v1/sandboxes/"+row.Sandbox, patch, nil); err != nil {
 		f.fail(w, row.Sandbox, err)
 		return

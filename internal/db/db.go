@@ -15,6 +15,7 @@ package db
 import (
 	"context"
 	"errors"
+	"maps"
 	"time"
 
 	"github.com/arugula-salad/loam/pkg/api"
@@ -106,6 +107,10 @@ func (s Sandbox) Clone() Sandbox {
 // and stored as [] rather than null.
 func CloneNetwork(n api.Network) api.Network {
 	out := api.Network{Egress: make([]api.Rule, len(n.Egress))}
+	for _, r := range n.RequestHeaders {
+		r.Headers = maps.Clone(r.Headers)
+		out.RequestHeaders = append(out.RequestHeaders, r)
+	}
 	for i, r := range n.Egress {
 		if r.Ports != nil {
 			r.Ports = append([]int{}, r.Ports...)
@@ -231,6 +236,9 @@ type Store interface {
 	E2BTemplates(context.Context, string) ([]E2BTemplate, error)
 	UpdateE2BTemplate(context.Context, string, string, func(*E2BTemplate) error) (E2BTemplate, error)
 	DeleteE2BTemplate(context.Context, string, string) error
+	E2BSecrets(context.Context, string) ([]E2BSecret, error)
+	PutE2BSecret(context.Context, E2BSecret, bool) (E2BSecret, error)
+	DeleteE2BSecret(context.Context, string, string) error
 	CreateProject(ctx context.Context, p api.Project) error
 	Project(ctx context.Context, name string) (api.Project, error)
 	Projects(ctx context.Context) ([]api.Project, error)

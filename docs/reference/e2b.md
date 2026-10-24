@@ -194,3 +194,25 @@ The build snapshots the running server after its ready check. Each create resume
 its own copy. Tags change only when a build succeeds, so a failed rebuild leaves
 the previous version available. Templates are private to the API key's project.
 Builds have a 20-minute limit and readiness checks a two-minute limit.
+
+## Keep inference keys outside the sandbox
+
+```js
+import {Secret, Sandbox} from 'e2b'
+await Secret.create('inference-key', process.env.INFERENCE_KEY)
+const sandbox = await Sandbox.create({
+  network: {
+    denyOut: ['0.0.0.0/0'],
+    allowOut: ['api.example.com'],
+    rules: {'api.example.com': [{transform: {headers: {
+      Authorization: `Bearer ${Secret.fill('inference-key')}`
+    }}}]}
+  }
+})
+```
+
+The HTTPS broker fills the stored value into outgoing requests on port 443. The
+sandbox receives no raw key. Header rules do not allow a blocked destination.
+Rotate with `Secret.update('inference-key', newValue)`; delete with `Secret.destroy`.
+Deleted or unavailable values cause matching requests to fail. Secret reads return
+metadata and version only. Exact domains override wildcard rules entirely.

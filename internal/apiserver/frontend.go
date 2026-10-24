@@ -13,6 +13,7 @@ import (
 
 	"github.com/arugula-salad/loam/internal/db"
 	"github.com/arugula-salad/loam/internal/nodeapi"
+	"github.com/arugula-salad/loam/pkg/api"
 )
 
 // A front end in loam-api's process (internal/e2b, docs/E2B.md) is a client
@@ -213,4 +214,30 @@ func (s *Server) TrafficToken(sandbox string) (string, error) {
 	mac := hmac.New(sha256.New, s.sealer.trafficKey)
 	mac.Write([]byte(sandbox))
 	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+// RefreshE2BSecrets resolves current header credentials on each awake sandbox.
+// Sleeping sandboxes receive the current values at their next wake.
+func (s *Server) RefreshE2BSecrets(ctx context.Context, project string) error {
+	all, err := s.store.Sandboxes(ctx, project)
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for _, sb := range all {
+		if sb.State != api.StateRunning || len(sb.Network.RequestHeaders) == 0 {
+			continue
+		}
+		rt := s.rt(sb.ID)
+		rt.mu.Lock()
+		cur, e := s.store.Sandbox(ctx, sb.ID)
+		if e == nil {
+			e = s.pushPolicyLocked(ctx, cur)
+		}
+		rt.mu.Unlock()
+		if e != nil && !errors.Is(e, db.ErrNotFound) {
+			failures = append(failures, e)
+		}
+	}
+	return errors.Join(failures...)
 }

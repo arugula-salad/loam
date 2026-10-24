@@ -416,8 +416,16 @@ type PutTask struct {
 
 // Network is what a sandbox may reach (docs/API.md, "Network"). No rules is
 // the whole internet.
+// HeaderRule replaces request headers on the most specific matching HTTPS host.
+// Values can reference E2B project secrets with ${e2b.secrets.NAME}.
+type HeaderRule struct {
+	Domain  string            `json:"domain"`
+	Headers map[string]string `json:"headers"`
+}
+
 type Network struct {
-	Egress []Rule `json:"egress"`
+	RequestHeaders []HeaderRule `json:"request_headers,omitempty"`
+	Egress         []Rule       `json:"egress"`
 }
 
 // Rule is one egress rule: a domain with an action, or an include.
