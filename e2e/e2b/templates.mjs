@@ -1,6 +1,6 @@
 // Run against an isolated deployment with the same E2B_* settings as js.mjs.
 import {Template, Sandbox} from 'e2b'
-import {mkdtemp, writeFile, rm} from 'node:fs/promises'
+import {mkdtemp, writeFile, rm, mkdir} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -10,9 +10,12 @@ const boxes = []
 let built
 try {
   await writeFile(join(context, 'hello.txt'), 'copied-by-sdk\n')
+  await mkdir(join(context, 'nested'))
+  await writeFile(join(context, 'nested', '.hidden'), 'nested-content')
   const template = Template({fileContextPath: context})
     .fromTemplate('base')
     .copy('hello.txt', '/tmp/from-build.txt')
+    .copy('.', '/tmp/context-tree')
     .setEnvs({LOAM_BUILD_VALUE: 'persisted'})
     .setUser('user')
     .setWorkdir('/home/user')
@@ -25,7 +28,7 @@ try {
     const start = Date.now()
     const box = await Sandbox.create(`${name}:v1`)
     boxes.push(box)
-    const result = await box.commands.run('set -e; test "$LOAM_BUILD_VALUE" = persisted; test "$(id -un)" = user; test "$PWD" = /home/user; test "$(cat /tmp/from-build.txt)" = copied-by-sdk; kill -0 $(cat /tmp/template-pid); cat /run/e2b/.E2B_SANDBOX_ID')
+    const result = await box.commands.run('set -e; test "$LOAM_BUILD_VALUE" = persisted; test "$(id -un)" = user; test "$PWD" = /home/user; test "$(cat /tmp/from-build.txt)" = copied-by-sdk; test "$(cat /tmp/context-tree/nested/.hidden)" = nested-content; kill -0 $(cat /tmp/template-pid); cat /run/e2b/.E2B_SANDBOX_ID')
     if (result.stdout.trim() !== box.sandboxId) throw new Error('snapshot retained its source identity')
     console.log(`Snapshot create + validation: ${Date.now() - start} ms`)
   }
