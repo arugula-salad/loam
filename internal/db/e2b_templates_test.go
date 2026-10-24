@@ -21,16 +21,16 @@ func TestE2BTemplateStore(t *testing.T) {
 			if err := st.CreateProject(ctx, api.Project{Name: "p", CreatedAt: time.Now()}); err != nil {
 				t.Fatal(err)
 			}
-			row := db.E2BTemplate{ID: "tpl-a", Project: "p", Name: "workspace", Builds: map[string]db.E2BBuild{"b": {ID: "b", Status: "waiting"}}, Tags: map[string]string{}, Files: map[string][]byte{"f": []byte("archive")}}
+			row := db.E2BTemplate{ID: "tpl-a", Project: "p", Name: "workspace", Builds: map[string]db.E2BBuild{"b": {ID: "b", Status: "waiting"}}, Tags: map[string]string{}, Files: map[string]int64{"f": 7}}
 			if err := st.CreateE2BTemplate(ctx, row); err != nil {
 				t.Fatal(err)
 			}
 			if err := st.CreateE2BTemplate(ctx, row); !errors.Is(err, db.ErrExists) {
 				t.Fatalf("duplicate: %v", err)
 			}
-			row.Files["f"][0] = 'X'
+			row.Files["f"] = 9
 			rows, err := st.E2BTemplates(ctx, "p")
-			if err != nil || len(rows) != 1 || string(rows[0].Files["f"]) != "archive" {
+			if err != nil || len(rows) != 1 || rows[0].Files["f"] != 7 {
 				t.Fatalf("round trip: %+v %v", rows, err)
 			}
 			if rows, _ := st.E2BTemplates(ctx, "q"); len(rows) != 0 {

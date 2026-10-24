@@ -36,4 +36,4 @@ configMapGenerator:
 images:
   - name: loam-api
     newName: ghcr.io/arugula-salad/loam-api
-    digest: sha256:9d0ef548f923bf08d7f16121f393b9241d25b554a227d26ab97991876406cd4a
+    digest: sha256:6c98da0f55b366f68b8eac21ec8e63adfb385ec89b21e8ee2718c66d0d7b2daa

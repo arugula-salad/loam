@@ -28,6 +28,7 @@ package e2b
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -141,6 +142,8 @@ type Store interface {
 	E2BTemplates(context.Context, string) ([]db.E2BTemplate, error)
 	UpdateE2BTemplate(context.Context, string, string, func(*db.E2BTemplate) error) (db.E2BTemplate, error)
 	DeleteE2BTemplate(context.Context, string, string) error
+	PutE2BTemplateFile(context.Context, string, string, string, io.Reader) error
+	OpenE2BTemplateFile(context.Context, string, string, string) (io.ReadCloser, error)
 	E2BSecrets(context.Context, string) ([]db.E2BSecret, error)
 	PutE2BSecret(context.Context, db.E2BSecret, bool) (db.E2BSecret, error)
 	DeleteE2BSecret(context.Context, string, string) error

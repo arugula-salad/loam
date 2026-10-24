@@ -2,6 +2,7 @@ package e2b
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -9,11 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"strings"
 
-	"github.com/arugula-salad/loam/internal/db"
 	"github.com/arugula-salad/loam/pkg/api"
 )
 
@@ -49,31 +50,30 @@ func (f *Frontend) buildFile(w http.ResponseWriter, r *http.Request, project str
 		writeJSON(w, 200, map[string]any{"present": false, "url": scheme + "://" + host + "/templates/" + t.ID + "/files/" + hash, "headers": map[string]string{"X-API-Key": r.Header.Get("X-API-Key")}})
 		return
 	}
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBuildFile))
+	file, err := os.CreateTemp("", "loam-template-upload-*")
 	if err != nil {
+		f.templateError(w, err)
+		return
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if _, err = io.Copy(file, http.MaxBytesReader(w, r.Body, maxBuildFile)); err != nil {
 		writeErr(w, 413, "build file archive exceeds 64 MiB")
 		return
 	}
-	if _, err = archiveFiles(raw); err != nil {
+	if _, err = file.Seek(0, 0); err != nil {
+		f.templateError(w, err)
+		return
+	}
+	if err = walkArchive(file, func(archiveFile, io.Reader) error { return nil }); err != nil {
 		writeErr(w, 400, "invalid build archive: "+err.Error())
 		return
 	}
-	_, err = f.store.UpdateE2BTemplate(r.Context(), project, t.ID, func(t *db.E2BTemplate) error {
-		total := len(raw)
-		for key, b := range t.Files {
-			if key != hash {
-				total += len(b)
-			}
-		}
-		if total > 256<<20 {
-			return fmt.Errorf("template uploads exceed 256 MiB")
-		}
-		if t.Files == nil {
-			t.Files = map[string][]byte{}
-		}
-		t.Files[hash] = raw
-		return nil
-	})
+	if _, err = file.Seek(0, 0); err != nil {
+		f.templateError(w, err)
+		return
+	}
+	err = f.store.PutE2BTemplateFile(r.Context(), project, t.ID, hash, file)
 	if err != nil {
 		f.templateError(w, err)
 		return
@@ -88,62 +88,96 @@ type archiveFile struct {
 	Directory bool
 }
 
-// Unpack in memory, never onto the API host's filesystem. Each member is
-// subsequently written through the sandbox's own file API.
-func archiveFiles(raw []byte) ([]archiveFile, error) {
-	var reader io.Reader = bytes.NewReader(raw)
-	if len(raw) > 2 && raw[0] == 0x1f && raw[1] == 0x8b {
-		gz, err := gzip.NewReader(reader)
+// walkArchive validates every member and streams its payload to visit. Archive
+// names are never used on the API host filesystem.
+func walkArchive(input io.Reader, visit func(archiveFile, io.Reader) error) error {
+	buffered := bufio.NewReader(input)
+	var reader io.Reader = buffered
+	magic, _ := buffered.Peek(2)
+	if len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		gz, err := gzip.NewReader(buffered)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer gz.Close()
 		reader = gz
 	}
 	tr := tar.NewReader(reader)
-	out := []archiveFile{}
 	var total int64
-	for {
+	for count := 0; ; count++ {
 		h, err := tr.Next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 		name := strings.TrimPrefix(h.Name, "./")
 		if name == "" && h.Typeflag == tar.TypeDir && h.Name == "./" {
 			name = "."
 		}
 		if name == "" || path.IsAbs(name) || path.Clean(name) == ".." || strings.HasPrefix(path.Clean(name), "../") {
-			return nil, fmt.Errorf("archive path must be relative")
+			return fmt.Errorf("archive path must be relative")
 		}
 		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeDir {
-			return nil, fmt.Errorf("archive links and special files are not supported")
+			return fmt.Errorf("archive links and special files are not supported")
+		}
+		if h.Size < 0 || h.Size > (256<<20)-total || count >= 10000 {
+			return fmt.Errorf("expanded archive exceeds limits")
 		}
 		total += h.Size
-		if h.Size < 0 || total > 256<<20 || len(out) >= 10000 {
-			return nil, fmt.Errorf("expanded archive exceeds limits")
+		if err = visit(archiveFile{Name: path.Clean(name), Mode: h.Mode & 0777, Directory: h.Typeflag == tar.TypeDir}, tr); err != nil {
+			return err
 		}
-		data, err := io.ReadAll(tr)
-		if err != nil {
-			return nil, err
+		if _, err = io.Copy(io.Discard, tr); err != nil {
+			return err
 		}
-		out = append(out, archiveFile{Name: path.Clean(name), Data: data, Mode: h.Mode & 0777, Directory: h.Typeflag == tar.TypeDir})
 	}
-	return out, nil
+	// Drain gzip to verify its checksum too, rather than stopping at tar EOF.
+	n, err := io.Copy(io.Discard, io.LimitReader(reader, (1<<20)+1))
+	if n > 1<<20 {
+		return fmt.Errorf("excessive archive trailer")
+	}
+	return err
 }
 
-func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, step templateStep, files map[string][]byte) error {
+// archiveFiles is used by small archive conformance tests.
+func archiveFiles(raw []byte) ([]archiveFile, error) {
+	var out []archiveFile
+	err := walkArchive(bytes.NewReader(raw), func(file archiveFile, r io.Reader) error {
+		data, err := io.ReadAll(r)
+		file.Data = data
+		out = append(out, file)
+		return err
+	})
+	return out, err
+}
+
+func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, step templateStep, template string) error {
 	if len(step.Args) < 2 {
 		return fmt.Errorf("COPY requires source and destination")
 	}
-	raw, ok := files[step.FilesHash]
-	if !ok {
-		return fmt.Errorf("COPY upload not found")
-	}
-	entries, err := archiveFiles(raw)
+	input, err := f.store.OpenE2BTemplateFile(ctx, project, template, step.FilesHash)
 	if err != nil {
+		return err
+	}
+	file, err := os.CreateTemp("", "loam-template-copy-*")
+	if err != nil {
+		input.Close()
+		return err
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	_, err = io.Copy(file, input)
+	input.Close()
+	if err != nil {
+		return err
+	}
+	if _, err = file.Seek(0, 0); err != nil {
+		return err
+	}
+	var entries []archiveFile
+	if err = walkArchive(file, func(entry archiveFile, _ io.Reader) error { entries = append(entries, entry); return nil }); err != nil {
 		return err
 	}
 	source, dest := path.Clean(step.Args[0]), step.Args[1]
@@ -167,13 +201,16 @@ func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, 
 		}
 		destDir = out.ExitCode == 0
 	}
-	for _, file := range entries {
+	if _, err = file.Seek(0, 0); err != nil {
+		return err
+	}
+	return walkArchive(file, func(file archiveFile, payload io.Reader) error {
 		suffix := path.Base(file.Name)
 		if sourceDir {
 			if source == "." {
 				suffix = file.Name
 				if suffix == "." {
-					continue
+					return nil
 				}
 			} else {
 				if file.Name != source && !strings.HasPrefix(file.Name, source+"/") {
@@ -182,7 +219,7 @@ func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, 
 				suffix = strings.TrimPrefix(strings.TrimPrefix(file.Name, source), "/")
 			}
 			if suffix == "" {
-				continue
+				return nil
 			}
 		}
 		target := dest
@@ -197,14 +234,14 @@ func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, 
 			if out.ExitCode != 0 {
 				return fmt.Errorf("COPY cannot create directory")
 			}
-			continue
+			return nil
 		}
 		mode := fmt.Sprintf("%04o", file.Mode)
 		if len(step.Args) > 3 && step.Args[3] != "" {
 			mode = step.Args[3]
 		}
 		query := url.Values{"path": {target}, "mode": {mode}, "mkdir": {"true"}}
-		if _, err = f.rawCall(ctx, project, "PUT", "/v1/sandboxes/"+id+"/fs/file?"+query.Encode(), file.Data); err != nil {
+		if _, err = f.rawStreamCall(ctx, project, "PUT", "/v1/sandboxes/"+id+"/fs/file?"+query.Encode(), payload); err != nil {
 			return err
 		}
 		if len(step.Args) > 2 && step.Args[2] != "" {
@@ -216,6 +253,6 @@ func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, 
 				return fmt.Errorf("COPY cannot set owner")
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }

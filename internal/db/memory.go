@@ -16,23 +16,24 @@ import (
 // Memory is the Store in memory: the handler tests' store, and loam-api's when
 // it runs without a database (local development). Nothing survives a restart.
 type Memory struct {
-	mu           sync.Mutex
-	projects     map[string]api.Project
-	keys         map[string]Key
-	sandboxes    map[string]Sandbox
-	checkpoints  map[string][]api.Checkpoint // by sandbox, oldest first
-	ports        map[string]map[int]string
-	events       []Event
-	snapshots    map[string]Snapshot
-	snapSeq      int64
-	layers       map[string]bool
-	tombstones   map[[2]string]bool
-	secrets      map[[2]string]Secret // by project and name
-	e2b          map[string]E2BSandbox
-	e2bTemplates map[string]E2BTemplate
-	traffic      map[[2]string]*memTraffic // by sandbox and day
-	salts        map[string][]byte
-	e2bSecrets   map[string]E2BSecret
+	mu               sync.Mutex
+	projects         map[string]api.Project
+	keys             map[string]Key
+	sandboxes        map[string]Sandbox
+	checkpoints      map[string][]api.Checkpoint // by sandbox, oldest first
+	ports            map[string]map[int]string
+	events           []Event
+	snapshots        map[string]Snapshot
+	snapSeq          int64
+	layers           map[string]bool
+	tombstones       map[[2]string]bool
+	secrets          map[[2]string]Secret // by project and name
+	e2b              map[string]E2BSandbox
+	e2bTemplates     map[string]E2BTemplate
+	e2bTemplateFiles map[string]map[string][]byte
+	traffic          map[[2]string]*memTraffic // by sandbox and day
+	salts            map[string][]byte
+	e2bSecrets       map[string]E2BSecret
 }
 
 // memTraffic is a day's counts and its set of visitor hashes.
@@ -110,6 +111,7 @@ func (m *Memory) DeleteProject(_ context.Context, name string) error {
 	for id, t := range m.e2bTemplates {
 		if t.Project == name {
 			delete(m.e2bTemplates, id)
+			delete(m.e2bTemplateFiles, id)
 		}
 	}
 	delete(m.projects, name)

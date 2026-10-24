@@ -1,5 +1,6 @@
 // Run against an isolated deployment with the same E2B_* settings as js.mjs.
 import {Template, Sandbox} from 'e2b'
+import {createHash, randomBytes} from 'node:crypto'
 import {mkdtemp, writeFile, rm, mkdir} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -12,6 +13,14 @@ try {
   await writeFile(join(context, 'hello.txt'), 'copied-by-sdk\n')
   await mkdir(join(context, 'nested'))
   await writeFile(join(context, 'nested', '.hidden'), 'nested-content')
+  const checksums = []
+  if (process.env.LOAM_LARGE_COPY === '1') {
+    // One archive near the compressed limit, with a much larger expanded body.
+    for (const [file, bytes] of [['random.bin', randomBytes(60 << 20)], ['zeros.bin', Buffer.alloc(100 << 20)]]) {
+      await writeFile(join(context, file), bytes)
+      checksums.push(`${createHash('sha256').update(bytes).digest('hex')}  /tmp/context-tree/${file}`)
+    }
+  }
   const template = Template({fileContextPath: context})
     .fromTemplate('base')
     .copy('hello.txt', '/tmp/from-build.txt')
@@ -30,6 +39,11 @@ try {
     boxes.push(box)
     const result = await box.commands.run('set -e; test "$LOAM_BUILD_VALUE" = persisted; test "$(id -un)" = user; test "$PWD" = /home/user; test "$(cat /tmp/from-build.txt)" = copied-by-sdk; test "$(cat /tmp/context-tree/nested/.hidden)" = nested-content; kill -0 $(cat /tmp/template-pid); cat /run/e2b/.E2B_SANDBOX_ID')
     if (result.stdout.trim() !== box.sandboxId) throw new Error('snapshot retained its source identity')
+    if (checksums.length) {
+      const hashes = await box.commands.run('sha256sum /tmp/context-tree/random.bin /tmp/context-tree/zeros.bin')
+      if (hashes.stdout.trim() !== checksums.join('\n')) throw new Error('large COPY contents differ')
+      console.log('Verified 160 MiB of copied content after snapshot creation')
+    }
     console.log(`Snapshot create + validation: ${Date.now() - start} ms`)
   }
 } finally {

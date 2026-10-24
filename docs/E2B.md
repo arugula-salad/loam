@@ -378,7 +378,18 @@ Per-build registry credentials and explicit `minFreeDiskMb` growth are refused.
 sources must keep their original resources. File upload URLs are authenticated:
 GET/PUT `/templates/{templateID}/files/{hash}` accepts tar or tar.gz, at most 64 MiB
 compressed, 256 MiB expanded, and no links, devices, or escaping archive paths.
-A template retains at most 256 MiB of uploaded archives in Postgres.
+A template retains at most 256 MiB of uploaded archives in Postgres, stored as
+binary chunks of at most 1 MiB in a separate table. Build metadata contains only
+file sizes: status polls and log updates never load or rewrite archives. The API
+spools each compressed archive to a private temporary file for validation and
+streams COPY payloads into the guest, retaining no expanded archive in memory.
+The temporary filesystem needs space for concurrent uploads/COPY operations
+(up to 64 MiB each). Migration from inline archives invalidates that upload cache;
+the SDK reuploads missing files, and completed snapshots and tags are unchanged.
+Failed workers retry error recording and sandbox deletion independently, once per
+second after failed attempts (each attempt is limited to ten seconds), for up to
+twenty minutes. A brief database outage therefore does not strand a build until
+its lost-worker expiry; cleanup resumes when the database recovers.
 
 After instructions, the builder starts `startCmd` as a supervised guest service and
 polls `readyCmd` for up to two minutes. A memory checkpoint captures the running
