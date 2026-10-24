@@ -1462,4 +1462,25 @@ func TestPrivateTraffic(t *testing.T) {
 	if w.Code >= 300 || decode[sandboxJSON](t, w).TrafficAccessToken != token {
 		t.Fatalf("connect token: %+v", w)
 	}
+	// Resume and an already-running connect expose the same token as create.
+	for _, route := range []string{"resume", "connect"} {
+		if route == "resume" {
+			fx.do("POST", "/sandboxes/"+id+"/pause", fx.key, nil)
+		}
+		w = fx.do("POST", "/sandboxes/"+id+"/"+route, fx.key, map[string]any{})
+		if w.Code >= 300 || decode[sandboxJSON](t, w).TrafficAccessToken != token {
+			t.Fatalf("%s token: %+v", route, w)
+		}
+	}
+	publicID := fx.create(nil)
+	for _, tc := range []struct {
+		public bool
+		code   int
+	}{{true, 204}, {false, 400}} {
+		w = fx.do("PUT", "/sandboxes/"+publicID+"/network", fx.key, map[string]any{"allowPublicTraffic": tc.public})
+		if w.Code != tc.code {
+			t.Fatalf("public update: %+v", w)
+		}
+	}
+
 }
