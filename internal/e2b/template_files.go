@@ -144,6 +144,9 @@ func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, 
 		return err
 	}
 	source, dest := path.Clean(step.Args[0]), step.Args[1]
+	if strings.ContainsAny(source, "*?[") {
+		return fmt.Errorf("COPY glob sources are not supported; use a directory or exact file")
+	}
 	if !path.IsAbs(dest) {
 		dest = path.Join(cwd, dest)
 	}
@@ -153,16 +156,34 @@ func (f *Frontend) copyBuildFiles(ctx context.Context, project, id, cwd string, 
 			sourceDir = true
 		}
 	}
+	destDir := strings.HasSuffix(step.Args[1], "/")
+	if !destDir {
+		var out api.ExecResult
+		if err := f.call(ctx, project, "POST", "/v1/sandboxes/"+id+"/exec/run", api.ExecRun{Cmd: []string{"/bin/sh", "-c", "test -d " + shellQuote(dest)}, User: "root"}, &out); err != nil {
+			return err
+		}
+		destDir = out.ExitCode == 0
+	}
 	for _, file := range entries {
 		suffix := path.Base(file.Name)
 		if sourceDir {
-			suffix = strings.TrimPrefix(strings.TrimPrefix(file.Name, source), "/")
+			if source == "." {
+				suffix = file.Name
+				if suffix == "." {
+					continue
+				}
+			} else {
+				if file.Name != source && !strings.HasPrefix(file.Name, source+"/") {
+					return fmt.Errorf("COPY archive member is outside its source directory")
+				}
+				suffix = strings.TrimPrefix(strings.TrimPrefix(file.Name, source), "/")
+			}
 			if suffix == "" {
 				continue
 			}
 		}
 		target := dest
-		if sourceDir || strings.HasSuffix(step.Args[1], "/") || len(entries) > 1 {
+		if sourceDir || destDir || len(entries) > 1 {
 			target = path.Join(dest, suffix)
 		}
 		if file.Directory {

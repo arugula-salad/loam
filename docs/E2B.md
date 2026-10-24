@@ -373,7 +373,7 @@ variables in the guest while escaping command substitutions. RUN output is retai
 up to 64 KiB per build; status supplies structured `logEntries` with `logsOffset`.
 
 Image inputs require a SHA-256 digest; Docker Hub shorthand and `tag@sha256:...`
-are normalized. Operator registry allowlists and nodelet credentials still apply.
+are normalized. COPY accepts exact files or directories, not glob sources. Operator registry allowlists and nodelet credentials still apply.
 Per-build registry credentials and explicit `minFreeDiskMb` growth are refused.
 `fromTemplate` accepts operator templates or completed project builds. Snapshot
 sources must keep their original resources. File upload URLs are authenticated:
