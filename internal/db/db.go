@@ -227,6 +227,10 @@ type Traffic struct {
 // Store is every record loam-api keeps. Methods answer ErrNotFound for a
 // missing record and ErrExists for a duplicate name or ID.
 type Store interface {
+	CreateE2BTemplate(context.Context, E2BTemplate) error
+	E2BTemplates(context.Context, string) ([]E2BTemplate, error)
+	UpdateE2BTemplate(context.Context, string, string, func(*E2BTemplate) error) (E2BTemplate, error)
+	DeleteE2BTemplate(context.Context, string, string) error
 	CreateProject(ctx context.Context, p api.Project) error
 	Project(ctx context.Context, name string) (api.Project, error)
 	Projects(ctx context.Context) ([]api.Project, error)

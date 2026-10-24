@@ -533,6 +533,12 @@ func (f *Frontend) ensureInit(ctx context.Context, row db.E2BSandbox) error {
 	defer cancel()
 	start := time.Now()
 	user, workdir := f.defaultsOf(row.Template)
+	if row.DefaultUser != "" {
+		user = row.DefaultUser
+	}
+	if row.DefaultWorkdir != "" {
+		workdir = row.DefaultWorkdir
+	}
 	for {
 		req := initRequest{AccessToken: token, EnvVars: env, DefaultUser: user,
 			DefaultWorkdir: workdir, Timestamp: f.now().Format(time.RFC3339Nano)}

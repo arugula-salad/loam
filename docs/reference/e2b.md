@@ -171,3 +171,26 @@ A missing or incorrect token gets 403 without waking the sandbox. envd still use
 own access token. Public access is fixed at create; network updates can repeat the same
 setting but cannot change it. The traffic token survives pause/resume and changes if the
 operator rotates `LOAM_SECRET_KEY`.
+
+## Build a template
+
+Use the official E2B Template SDK with a digest-pinned base image or an existing
+template. Dockerfiles support RUN, ENV, USER, WORKDIR, and COPY through the SDK's
+parser. The base registry must be allowed by the operator; per-build registry
+credentials and disk-growth requests are not supported.
+
+```js
+const template = Template({fileContextPath: '.'})
+  .fromTemplate('base')
+  .copy('server.js', '/home/user/server.js')
+  .setUser('user')
+  .setWorkdir('/home/user')
+  .setStartCmd('node server.js', 'curl -f http://localhost:3000/health')
+await Template.build(template, 'my-server', {tags: ['v1'], cpuCount: 2, memoryMB: 1024})
+const sandbox = await Sandbox.create('my-server:v1')
+```
+
+The build snapshots the running server after its ready check. Each create resumes
+its own copy. Tags change only when a build succeeds, so a failed rebuild leaves
+the previous version available. Templates are private to the API key's project.
+Builds have a 20-minute limit and readiness checks a two-minute limit.

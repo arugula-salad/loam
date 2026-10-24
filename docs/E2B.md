@@ -258,11 +258,9 @@ next fresh boot (or loam-api restart), and until then envd answers without one.
 
 ## Not here
 
-Answered 404 (`Not found: this E2B-compatible server does not implement …`): templates and their
-build API (`/v3/templates`, `/templates/…`), snapshots and `fork` (`/sandboxes/{id}/fork`,
+Answered 404 (`Not found: this E2B-compatible server does not implement …`): standalone snapshots and `fork` (`/sandboxes/{id}/fork`,
 `/sandboxes/{id}/snapshots`, `/snapshots`), volumes, sandbox logs and events,
-`GET /sandboxes/metrics`, teams and API key management. Refused at create (above): templates
-other than `base`, `mcp`, `iam`, volumes, egress proxies and transform rules, CIDR rules,
+`GET /sandboxes/metrics`, teams and API key management. Refused at create (above): `mcp`, `iam`, volumes, egress proxies and transform rules, CIDR rules,
 `secure: false`.
 
 ## Differences from hosted E2B
@@ -361,3 +359,41 @@ A running process can read its current sandbox ID from `/run/e2b/.E2B_SANDBOX_ID
 The agent refreshes this file at every create, resume, restore and fork, before the
 VM is reported running. Reopen the file when reading it, or watch `/run/e2b` for
 replacement. A restored process's environment still contains its original values.
+
+## Project template builds
+
+`POST /v3/templates` reserves a build ID for a project-private template name and tags
+(default tag `default`). CPU and memory default to 2 and 1024 MiB, disk to 20 GiB.
+`POST /v2/templates/{templateID}/builds/{buildID}` starts it once. Exactly one of
+`fromImage` or `fromTemplate` is required. The official SDK translates Dockerfiles
+into these instructions: `RUN`, `ENV`, `USER`, `WORKDIR`, and `COPY`. Builds run in
+ordinary project sandboxes, never on the API or nodelet host. `ENV` expands shell
+variables in the guest while escaping command substitutions. RUN output is retained
+up to 64 KiB per build; status supplies structured `logEntries` with `logsOffset`.
+
+Image inputs require a SHA-256 digest; Docker Hub shorthand and `tag@sha256:...`
+are normalized. COPY accepts exact files or directories, not glob sources. Operator registry allowlists and nodelet credentials still apply.
+Per-build registry credentials and explicit `minFreeDiskMb` growth are refused.
+`fromTemplate` accepts operator templates or completed project builds. Snapshot
+sources must keep their original resources. File upload URLs are authenticated:
+GET/PUT `/templates/{templateID}/files/{hash}` accepts tar or tar.gz, at most 64 MiB
+compressed, 256 MiB expanded, and no links, devices, or escaping archive paths.
+A template retains at most 256 MiB of uploaded archives in Postgres.
+
+After instructions, the builder starts `startCmd` as a supervised guest service and
+polls `readyCmd` for up to two minutes. A memory checkpoint captures the running
+service, then its source is paused and protected. A create from `name:tag` forks
+that checkpoint, preserving running processes, build environment, default user and
+working directory. Per-create environment overrides are applied to envd. Each fork
+gets its own envd token. The source's envd has not been initialized before checkpoint.
+
+Status is `waiting`, `building`, `ready`, or `error` via
+`GET /templates/{templateID}/builds/{buildID}/status`. Builds have a 20-minute
+limit and source deletion deadline. A lost worker expires on a subsequent lookup
+after a one-minute grace period; it is not automatically replayed. Failed builds
+never move tags. `GET /templates/{templateID}` returns build metadata;
+`GET /templates/{templateID}/tags` lists tags, and `POST /templates/tags` assigns
+`{target: "name:tag", tags: [...]}` to a successful build. Alias lookup is
+`GET /templates/aliases/{alias}`. All records and uploads are scoped to the project.
+Deleting `/templates/{templateID}` removes its retained source sandboxes and build
+metadata; it refuses while a build is running. Existing forked sandboxes survive.

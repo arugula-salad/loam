@@ -12,4 +12,4 @@ resources:
 images:
   - name: loam-nodelet
     newName: ghcr.io/arugula-salad/loam-nodelet
-    digest: sha256:b22a5159339c4dea6c1902926400b8ce25602722f4016e453a72f19d1afc76df
+    digest: sha256:50b9f44141e5973331e8bb1f472186b6cb12ae3fc58791aee79bdf034230e379

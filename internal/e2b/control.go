@@ -29,6 +29,7 @@ import (
 
 func (f *Frontend) controlPlane() http.Handler {
 	mux := http.NewServeMux()
+	f.templateRoutes(mux)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.WriteString(w, "Health check successful")
@@ -365,9 +366,29 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, project string
 		return
 	}
 	tmpl, loamTmpl, ok := f.templateOf(req.TemplateID)
+	var from *api.From
+	var buildUser, buildWorkdir string
 	if !ok {
-		writeErr(w, http.StatusNotFound, fmt.Sprintf("template '%s' not found", req.TemplateID))
-		return
+		t, build, err := f.resolveBuild(r.Context(), project, req.TemplateID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				writeErr(w, 404, fmt.Sprintf("template '%s' not found", req.TemplateID))
+			} else {
+				f.templateError(w, err)
+			}
+			return
+		}
+		tmpl = t.ID
+		buildUser, buildWorkdir = build.User, build.Workdir
+		env := make(map[string]string, len(build.Env)+len(req.EnvVars))
+		for k, v := range build.Env {
+			env[k] = v
+		}
+		for k, v := range req.EnvVars {
+			env[k] = v
+		}
+		req.EnvVars = env
+		from = &api.From{Sandbox: build.Sandbox, Checkpoint: build.Checkpoint}
 	}
 	if len(req.unknown) > 0 {
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("%s: not supported by this server", strings.Join(req.unknown, ", ")))
@@ -407,7 +428,7 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, project string
 	}
 	now := f.now()
 	token := newAccessToken()
-	row := db.E2BSandbox{Project: project, Template: tmpl, TimeoutS: int(timeout / time.Second),
+	row := db.E2BSandbox{Project: project, Template: tmpl, DefaultUser: buildUser, DefaultWorkdir: buildWorkdir, TimeoutS: int(timeout / time.Second),
 		StartedAt: now, EndAt: now.Add(timeout), AutoPause: autoPause, KeepMemory: keepMemory, AutoResume: autoResume}
 	row.PrivateTraffic = req.Network != nil && req.Network.AllowPublicTraffic != nil && !*req.Network.AllowPublicTraffic
 	labels := map[string]string{}
@@ -416,7 +437,7 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, project string
 	}
 	// E2B sandboxes are never paused for being idle: they run until their
 	// timeout, and then die (or pause, with autoPause).
-	create := api.CreateSandbox{Template: loamTmpl, Env: req.EnvVars, Labels: labels,
+	create := api.CreateSandbox{Template: loamTmpl, From: from, Env: req.EnvVars, Labels: labels,
 		Idle: &api.Idle{Action: api.ActionNone}, Deadline: &api.Deadline{At: row.EndAt, Action: deadlineAction(row)}}
 	if rules != nil {
 		create.Network = &api.Network{Egress: rules}
