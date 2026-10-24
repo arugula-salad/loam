@@ -58,6 +58,12 @@ which every sandbox trusts: the agent installs it in the system bundles and sets
 that pins certificates, or brings its own CA list and ignores those variables, won't trust the
 node. Every other connection, TLS or not, is never decrypted.
 
+The broker root is also available at E2B's path,
+`/usr/local/share/ca-certificates/e2b-ca.crt`, refreshed on every wake even without secrets.
+Applications that launch Node themselves can set `NODE_EXTRA_CA_CERTS` to that path;
+Node reads extra roots at process startup. Rebuild older memory-snapshot templates to
+pick up the agent that installs this path.
+
 ## A worked example
 
 postman-echo.com's `/basic-auth` answers `{"authenticated":true}` to the user `postman` with the

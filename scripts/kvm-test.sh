@@ -37,7 +37,7 @@ if [ -z "${LOAM_KVM_IMAGE:-}" ]; then
   # guest image. Keep it in an isolated derived image used only by this suite.
   docker build -q -t loam-guest:kvm-test - <<'EOF'
 FROM loam-guest:dev
-RUN apt-get update && apt-get install -y --no-install-recommends nftables && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends nftables nodejs && rm -rf /var/lib/apt/lists/*
 EOF
   mkdir -p dist/dev
   docker save loam-guest:kvm-test -o dist/dev/guest.tar

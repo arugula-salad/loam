@@ -133,6 +133,33 @@ func TestWakeInstallsCA(t *testing.T) {
 	}
 }
 
+// E2B applications discover this path independently of envd's environment.
+func TestWakeInstallsE2BCA(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(h.srv.cfg.TrustRoot, "/usr/local/share/ca-certificates/e2b-ca.crt")
+	first := testRoot(t, "first")
+	second := testRoot(t, "second")
+	for _, cert := range []string{first, first, second} {
+		h.wantStatus(h.do("POST", "/internal/wake", nodeapi.Wake{Sandbox: "sb-x", CA: cert}, nil), 204, "")
+		if got := read(t, path); got != cert {
+			t.Fatalf("E2B CA: %q, want %q", got, cert)
+		}
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o644 {
+			t.Fatalf("E2B CA permissions: %v %v", fi, err)
+		}
+	}
+	// Repair a removed certificate on the next wake, without any secrets.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	h.wantStatus(h.do("POST", "/internal/wake", nodeapi.Wake{Sandbox: "sb-x", CA: second}, nil), 204, "")
+	h.wantStatus(h.do("POST", "/internal/wake", nodeapi.Wake{Sandbox: "sb-x"}, nil), 204, "")
+	h.wantStatus(h.do("POST", "/internal/wake", nodeapi.Wake{Sandbox: "sb-x", CA: "invalid"}, nil), 400, api.CodeInvalid)
+	if got := read(t, path); got != second {
+		t.Fatalf("E2B CA changed: %q", got)
+	}
+}
+
 // The CA's variables sit beneath the image's, the sandbox's and the call's.
 func TestCAEnvOrder(t *testing.T) {
 	h := newHarness(t)

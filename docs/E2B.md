@@ -230,6 +230,13 @@ CA's variables (`NODE_EXTRA_CA_CERTS=/etc/loam/ca.pem`, `SSL_CERT_FILE`, `REQUES
 `CARGO_HTTP_CAINFO` at Ubuntu's bundle, `UV_NATIVE_TLS=1`), as loam's agent gives its own
 processes. A change to the env reaches envd at its next `/init`, which is the next fresh boot.
 
+The agent also installs the broker root at `/usr/local/share/ca-certificates/e2b-ca.crt`
+on every wake, including sandboxes with header-transform rules and no loam secrets.
+Applications can discover this E2B-compatible path and set `NODE_EXTRA_CA_CERTS` when
+starting Node subprocesses, independently of envd's `/init` environment. Already-running
+Node processes do not reload extra roots; restart them after a CA change. Memory snapshots
+retain their agent version, so templates made before this support need a fresh boot/rebuild.
+
 **When.** Once per boot of the VM, before anything else of E2B's reaches envd in it:
 
 - The boot is the VM's `booted_at` on its node (docs/NODE.md, `VM`), which loam-api reads for the

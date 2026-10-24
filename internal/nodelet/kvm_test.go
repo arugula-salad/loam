@@ -482,6 +482,9 @@ print("uid firewall: IPv4/IPv6 rejection, other users/ports, and removal passed"
 	})
 
 	t.Run("egress header rules", func(t *testing.T) {
+		if got := read("sb-kvm1", "/usr/local/share/ca-certificates/e2b-ca.crt"); got != string(kvm.caPEM) {
+			t.Fatalf("E2B CA: %q", got)
+		}
 		pol := nodeapi.Policy{RequestHeaders: []nodeapi.HeaderRule{{Domain: "postman-echo.com", Headers: map[string]string{"X-Loam-Transform": "loam-header-test-715"}}}}
 		if err := cl.SetPolicy(ctx, "sb-kvm1", pol); err != nil {
 			t.Fatal(err)
@@ -490,6 +493,13 @@ print("uid firewall: IPv4/IPv6 rejection, other users/ports, and removal passed"
 		code, out := run("sb-kvm1", "timeout", "20", "curl", "-sS", "-H", "X-Loam-Transform: guest-value", "https://postman-echo.com/headers")
 		if code != 0 || !strings.Contains(out, "loam-header-test-715") || strings.Contains(out, "guest-value") {
 			t.Fatalf("header transform: %d %s", code, out)
+		}
+		// Node ignores the system bundle: E2B applications set this path even
+		// when envd did not inject CA variables and no secrets are configured.
+		code, out = run("sb-kvm1", "timeout", "20", "env", "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/e2b-ca.crt",
+			"node", "-e", `require('https').get('https://postman-echo.com/headers', r => { r.pipe(process.stdout); }).on('error', e => { console.error(e); process.exit(1); });`)
+		if code != 0 || !strings.Contains(out, "loam-header-test-715") {
+			t.Fatalf("Node with E2B CA and no secrets: %d %s", code, out)
 		}
 		pol.Sensitive = []string{"loam-header-test-715"}
 		if err := cl.SetPolicy(ctx, "sb-kvm1", pol); err != nil {
