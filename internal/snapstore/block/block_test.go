@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/arugula-salad/loam/internal/snapstore/header"
 )
@@ -119,4 +120,47 @@ func TestCacheZeroDetectionAndExport(t *testing.T) {
 	if _, err := c.WriteAt(make([]byte, 10), 0); err == nil {
 		t.Fatal("misaligned write accepted")
 	}
+}
+
+func TestChunkerFailureWaitsForSessionRelease(t *testing.T) {
+	c, err := NewChunker(MemoryChunkSize, page, filepath.Join(t.TempDir(), "layer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	session := newFetchSession(0, MemoryChunkSize, c.cache)
+	c.fetchSessions = []*fetchSession{session}
+	c.fetchMu.Lock()
+	var once sync.Once
+	unlock := func() { once.Do(c.fetchMu.Unlock) }
+	defer unlock()
+	entered := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		c.runFetch(context.Background(), session, func(context.Context, int64, int64, *header.FrameTable) (io.ReadCloser, error) {
+			close(entered)
+			return nil, errors.New("offline")
+		}, nil)
+	}()
+	<-entered
+	result := make(chan error, 1)
+	go func() { result <- session.registerAndWait(context.Background(), 0) }()
+	select {
+	case err := <-result:
+		unlock()
+		<-finished
+		t.Fatalf("published failure before removing its session: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("lost fetch failure")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("failure was not published")
+	}
+	<-finished
 }
