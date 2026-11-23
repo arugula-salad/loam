@@ -12,7 +12,7 @@
     },
     {
       "name": "e2b-fountain",
-      "image": "ghcr.io/arugula-salad/loam-e2b-fountain@sha256:1edc1e3c4ee416c3b90696b06021c12dfb0835d2574c7422f757ce8e7fe7a7ce",
+      "image": "ghcr.io/arugula-salad/loam-e2b-fountain@sha256:ec6f297d6484d4f1f9326c41a624430c1c9fcf872c02c20b6ec5b3dcc2abbe94",
       "resources": {"cpus": 2, "memory_mib": 4096, "disk_gib": 20}
     }
   ]
